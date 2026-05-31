@@ -98,8 +98,7 @@ func TestConfirmGateBlocksDeleteOnQuit(t *testing.T) {
 	sizes := map[string]int64{"/a/node_modules": 1, "/b/target": 1, "/home/.gradle/caches": 1}
 	deleted := []string{}
 	m := drainSizing(t, newTestModel(sizes, &deleted), sizes)
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
-	m = m2.(Model)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	if cmd == nil {
 		t.Error("expected tea.Quit on q")
 	}

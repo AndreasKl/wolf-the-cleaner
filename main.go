@@ -35,7 +35,9 @@ func run() int {
 	path := "."
 	for args := flag.Args(); len(args) > 0; args = flag.Args() {
 		path = args[0]
-		flag.CommandLine.Parse(args[1:])
+		// flag.CommandLine uses ExitOnError, so a parse error exits the process;
+		// the returned error is therefore always nil here.
+		_ = flag.CommandLine.Parse(args[1:])
 	}
 
 	if interactive && quiet {
