@@ -35,9 +35,10 @@ cache resolution, and deletion. `rules` is internal data consumed only by
 ## File Structure
 
 - `go.mod` — module `it.kluth.buildcleaner`, go 1.26, Charm deps
-- `internal/rules/rules.go` — `Rule`, `ProjectRules`, `Rule.Matches`, `GlobalCacheDef`, `GlobalCacheDefs` (data; imported only by `wolf`)
-- `internal/rules/rules_test.go`
+- `internal/wolf/rules.go` — `Rule`, `ProjectRules`, `Rule.Matches`, `GlobalCacheDef`, `GlobalCacheDefs` (data; internal to `wolf`)
+- `internal/wolf/rules_test.go`
 - `internal/wolf/wolf.go` — `Options`, `Target`, `Failure`, `Find`, `Measure`, `Delete`, `FormatSize`
+- `internal/wolf/trash.go` — move-to-trash disposal
 - `internal/wolf/wolf_test.go`
 - `internal/tui/tui.go` — `Options`, `Model`, messages, `New`, `Init`, `Update`, helpers, `Run`
 - `internal/tui/view.go` — `View`
@@ -82,17 +83,17 @@ git commit -m "chore: init go module it.kluth.buildcleaner with Charm deps"
 
 ---
 
-## Task 2: rules package
+## Task 2: rules data (in `wolf`)
 
 **Files:**
-- Create: `internal/rules/rules.go`
-- Test: `internal/rules/rules_test.go`
+- Create: `internal/wolf/rules.go`
+- Test: `internal/wolf/rules_test.go`
 
 - [ ] **Step 1: Write the failing test**
 
-`internal/rules/rules_test.go`:
+`internal/wolf/rules_test.go`:
 ```go
-package rules
+package wolf
 
 import "testing"
 
@@ -137,16 +138,16 @@ func TestProjectRulesNonEmpty(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/rules/`
+Run: `go test ./internal/wolf/`
 Expected: FAIL — `undefined: Rule` / package has no Go files.
 
 - [ ] **Step 3: Write the implementation**
 
-`internal/rules/rules.go`:
+`internal/wolf/rules.go`:
 ```go
-// Package rules holds the built-in table mapping project types to the build
+// This file holds the built-in table mapping project types to the build
 // artifacts they produce, plus the global per-user cache locations.
-package rules
+package wolf
 
 import "path/filepath"
 
@@ -226,14 +227,14 @@ var GlobalCacheDefs = []GlobalCacheDef{
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/rules/`
+Run: `go test ./internal/wolf/`
 Expected: PASS (ok).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/rules/
-git commit -m "feat: add rules package with built-in project rules and cache defs"
+git add internal/wolf/rules.go internal/wolf/rules_test.go
+git commit -m "feat: add built-in project rules and cache defs to wolf"
 ```
 
 ---
@@ -389,8 +390,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"it.kluth.buildcleaner/internal/rules"
 )
 
 // Scope distinguishes per-project artifacts from shared global caches.
@@ -444,7 +443,7 @@ func ScanLocal(root string) (cands []Candidate, warnings []error) {
 			}
 		}
 
-		for _, rule := range rules.ProjectRules {
+		for _, rule := range ProjectRules {
 			if !rule.Matches(names) {
 				continue
 			}
@@ -501,7 +500,7 @@ func ScanGlobal() []Candidate {
 		return nil
 	}
 	var out []Candidate
-	for _, def := range rules.GlobalCacheDefs {
+	for _, def := range GlobalCacheDefs {
 		path := ""
 		if def.GoEnvKey != "" {
 			if p := goEnv(def.GoEnvKey); p != "" {

@@ -1,12 +1,7 @@
-// Package rules holds the built-in, research-backed table mapping project types
-// to the build artifacts they produce, plus the global per-user cache
-// locations. It is pure data plus a small matcher; the wolf package consumes it
-// and callers never see it.
-//
-// Artifact and cache lists follow the canonical github/gitignore templates for
-// each ecosystem (and the Crystal/Deno docs); see the design spec under
-// docs/superpowers/specs for the per-ecosystem sources.
-package rules
+// This file holds the built-in rule table mapping project types to the build
+// artifacts they produce, plus the global per-user cache locations. It is pure
+// data plus a small matcher, all internal to package wolf.
+package wolf
 
 import "path/filepath"
 
@@ -24,10 +19,15 @@ type Rule struct {
 	Artifacts   []string // directories to delete (name, glob, or relative path)
 }
 
-// ProjectRules is the built-in rule table. Note there is deliberately no local
-// rule for Go: a Go checkout has no canonical reclaimable directory (binaries
-// are loose files, vendor/ is usually committed) — its reclaimable space lives
-// in the global module and build caches (see GlobalCacheDefs).
+// ProjectRules is the built-in, research-backed rule table. Artifact lists
+// follow the canonical github/gitignore templates for each ecosystem (and the
+// Crystal/Deno docs); see the design spec under docs/superpowers/specs for the
+// per-ecosystem sources.
+//
+// Note there is deliberately no local rule for Go: a Go checkout has no
+// canonical reclaimable directory (binaries are loose files, vendor/ is usually
+// committed) — its reclaimable space lives in the global module and build caches
+// (see GlobalCacheDefs).
 var ProjectRules = []Rule{
 	{Name: "C#/.NET", Markers: []string{"*.csproj", "*.sln", "*.fsproj", "*.vbproj"}, Artifacts: []string{"bin", "obj"}},
 	{Name: "JavaScript/TS", Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt", "out", ".output", ".svelte-kit", ".parcel-cache", ".turbo", ".vite", "coverage", ".cache"}},

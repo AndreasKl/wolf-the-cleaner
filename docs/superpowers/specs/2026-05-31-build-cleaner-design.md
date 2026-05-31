@@ -119,9 +119,9 @@ it.kluth.buildcleaner
 ├── main.go                  // CLI presenter: flags, text report, exit codes
 ├── internal/wolf/           // DEEP CORE: find + measure + delete reclaimable dirs
 │   ├── wolf.go              //   Options, Target, Failure; Find, Measure, Delete, FormatSize
-│   └── wolf_test.go
-├── internal/rules/          // built-in data consumed only by wolf (hidden from callers)
-│   ├── rules.go             //   ProjectRules, GlobalCacheDefs, Rule.Matches
+│   ├── rules.go             //   built-in data: ProjectRules, GlobalCacheDefs, Rule.Matches
+│   ├── trash.go             //   move-to-trash disposal
+│   ├── wolf_test.go
 │   └── rules_test.go
 ├── internal/tui/            // TUI presenter: Bubble Tea select-and-delete over wolf
 │   ├── tui.go               //   Model, Init/Update; messages; Run
@@ -195,11 +195,11 @@ func Delete(targets []Target, how Disposal) (processed int64, failed []Failure)
 func FormatSize(n int64) string
 ```
 
-`wolf` is the only package that imports `rules`. Splitting `Find` from `Measure`
-keeps the interface small while serving both the CLI's eager sizing and the
-TUI's lazy, streamed sizing over the same data.
+The detection data lives in `wolf` itself (`rules.go`), unexported to callers.
+Splitting `Find` from `Measure` keeps the interface small while serving both the
+CLI's eager sizing and the TUI's lazy, streamed sizing over the same data.
 
-### Detection data (`rules`, internal to `wolf`)
+### Detection data (internal to `wolf`)
 
 A rule matches a directory when at least one **marker** is present in it (plus,
 for Android, the extra `gradlew` requirement); then each existing **artifact**
@@ -259,14 +259,14 @@ unavailable, the relative fallback is used).
 ### Traversal (inside `Find`)
 
 `Find` uses `filepath.WalkDir` from `Root`. At each directory it reads the entry
-names, asks each `rules.Rule` whether it matches, and for every matching rule
+names, asks each `Rule` whether it matches, and for every matching rule
 turns each existing artifact directory into a `Target{Global: false}`. It then
 **does not descend** into a matched artifact dir (`filepath.SkipDir`) — avoiding
 the `node_modules`-full-of-`package.json` trap and most of the walk cost — while
 still descending into other subdirectories so **nested projects** are found.
 Symlinked directories are **not** followed; results are **deduped by path**.
 Unreadable directories are skipped silently. Global caches are appended from the
-`rules.GlobalCacheDefs` table, resolving each path and keeping only those that
+`GlobalCacheDefs` table, resolving each path and keeping only those that
 exist as real (non-symlink) directories.
 
 ### `tui` (interactive mode)

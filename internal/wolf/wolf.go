@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"it.kluth.buildcleaner/internal/rules"
 )
 
 // Options configures a scan.
@@ -77,7 +75,7 @@ func findLocal(root string) []Target {
 				dirNames = append(dirNames, en.Name())
 			}
 		}
-		for _, rule := range rules.ProjectRules {
+		for _, rule := range ProjectRules {
 			if !rule.Matches(names) {
 				continue
 			}
@@ -136,7 +134,7 @@ func findGlobal() []Target {
 		return nil
 	}
 	var out []Target
-	for _, def := range rules.GlobalCacheDefs {
+	for _, def := range GlobalCacheDefs {
 		path := resolveCache(def, home)
 		if path != "" && isRealDir(path) {
 			out = append(out, Target{Path: path, Kind: def.Name + " (global cache)", Global: true})
@@ -147,7 +145,7 @@ func findGlobal() []Target {
 
 // resolveCache resolves a cache path: a named env var wins, then `go env <key>`,
 // then $HOME joined with the relative fallback.
-func resolveCache(def rules.GlobalCacheDef, home string) string {
+func resolveCache(def GlobalCacheDef, home string) string {
 	if def.EnvVar != "" {
 		if v := os.Getenv(def.EnvVar); v != "" {
 			return v
