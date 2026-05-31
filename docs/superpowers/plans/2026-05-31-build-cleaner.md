@@ -1978,12 +1978,14 @@ the TUI). Deletion is permanent (`os.RemoveAll`) — there is no trash.
 
 - [ ] **Step 2: Final verification**
 
-Run:
+Run (compile + tests only — **never execute the binary against the host
+filesystem**; it deletes files):
 ```bash
 go build ./... && go vet ./... && go test ./...
-go build -o /tmp/wolfe . && cd $(mktemp -d) && mkdir -p p/bin && touch p/go.mod && /tmp/wolfe .; echo "exit=$?"
 ```
-Expected: all green; the smoke run prints a dry-run listing `p/bin` with a total and the "Run with --delete" hint, exit `0`, and `p/bin` still exists.
+Expected: all green. **Do not run the built `wolfe` binary on the host.**
+End-to-end behavior (dry-run listing, `--delete`, `--global`, exit codes) is
+verified only inside the Docker container via `./e2e/run.sh` (Task 10).
 
 - [ ] **Step 3: Commit**
 
