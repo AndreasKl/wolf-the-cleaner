@@ -10,8 +10,8 @@ backup gets smaller. Everything it removes can be regenerated (dependencies
 re-download, build output recompiles) - the Wolf cleans up the mess and leaves
 no trace.
 
-It can optionally also clean shared, per-user package caches (`~/.m2`,
-`~/.gradle/caches`, the Go module cache, …), and offers a polished interactive
+It can optionally also clean shared, per-user package caches (`./.m2`,
+`./.gradle/caches`, the Go module cache, …), and offers a polished interactive
 TUI for hands-on cleanup.
 
 > **Platform:** `wolfe` is built and tested primarily for **Linux**. The trash
@@ -84,7 +84,7 @@ Run with --delete to move them to the trash (recoverable; use --no-trash to dele
 
 ### Interactive TUI
 
-Scans with a spinner, then shows a scrollable, filterable checklist sorted
+While scanning shows a scrollable, filterable checklist sorted
 largest-first (sizes fill in lazily as they're computed). Keys: `↑/↓` move,
 `space` toggle, `a` toggle all, `g` globals-only, `/` filter, `enter` confirm &
 delete, `q` quit. A confirmation step gates all deletion.

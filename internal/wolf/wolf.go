@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -41,7 +40,7 @@ type Failure struct {
 func Find(opts Options) []Target {
 	targets := findLocal(opts.Root)
 	if opts.IncludeGlobal {
-		targets = append(targets, findGlobal()...)
+		targets = append(targets, findGlobal(opts.Root)...)
 	}
 	return targets
 }
@@ -128,43 +127,20 @@ func isRealDir(path string) bool {
 	return err == nil && fi.IsDir() && fi.Mode()&os.ModeSymlink == 0
 }
 
-func findGlobal() []Target {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
+// findGlobal returns the package-manager cache directories that exist within
+// root. These are the caches tools normally place under the user's home
+// directory (e.g. .m2/repository, .ivy2/cache, .nuget/packages); here they are
+// resolved relative to the scanned tree — typically a backup of a home
+// directory — so the real home directory is never touched.
+func findGlobal(root string) []Target {
 	var out []Target
 	for _, def := range GlobalCacheDefs {
-		path := resolveCache(def, home)
-		if path != "" && isRealDir(path) {
+		path := filepath.Join(root, def.RelPath)
+		if isRealDir(path) {
 			out = append(out, Target{Path: path, Kind: def.Name + " (global cache)", Global: true})
 		}
 	}
 	return out
-}
-
-// resolveCache resolves a cache path: a named env var wins, then `go env <key>`,
-// then $HOME joined with the relative fallback.
-func resolveCache(def GlobalCacheDef, home string) string {
-	if def.EnvVar != "" {
-		if v := os.Getenv(def.EnvVar); v != "" {
-			return v
-		}
-	}
-	if def.GoEnvKey != "" {
-		if v := goEnv(def.GoEnvKey); v != "" {
-			return v
-		}
-	}
-	return filepath.Join(home, def.RelPath)
-}
-
-func goEnv(key string) string {
-	out, err := exec.Command("go", "env", key).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // Measure returns the total size of regular files under path (best effort;

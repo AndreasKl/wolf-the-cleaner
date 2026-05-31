@@ -109,20 +109,25 @@ func TestFindDedupAndSymlink(t *testing.T) {
 	}
 }
 
-func TestFindGlobalUsesEnvAndHome(t *testing.T) {
+func TestFindGlobalUsesScannedRoot(t *testing.T) {
+	root := t.TempDir()
+	mkdir(t, filepath.Join(root, ".m2", "repository"))
+	mkdir(t, filepath.Join(root, ".nuget", "packages"))
+
+	// Caches in the real home directory must never be touched.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	deno := filepath.Join(home, "denodir")
-	mkdir(t, deno)
-	t.Setenv("DENO_DIR", deno)
-	mkdir(t, filepath.Join(home, ".m2", "repository"))
+	mkdir(t, filepath.Join(home, ".ivy2", "cache"))
 
-	got := pathsOf(Find(Options{Root: t.TempDir(), IncludeGlobal: true}))
-	if !got[filepath.Join(home, ".m2", "repository")] {
-		t.Error("expected ~/.m2/repository global cache")
+	got := pathsOf(Find(Options{Root: root, IncludeGlobal: true}))
+	if !got[filepath.Join(root, ".m2", "repository")] {
+		t.Error("expected <root>/.m2/repository global cache")
 	}
-	if !got[deno] {
-		t.Error("expected DENO_DIR-resolved deno cache")
+	if !got[filepath.Join(root, ".nuget", "packages")] {
+		t.Error("expected <root>/.nuget/packages global cache")
+	}
+	if got[filepath.Join(home, ".ivy2", "cache")] {
+		t.Error("home-directory caches must not be discovered")
 	}
 }
 

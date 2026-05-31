@@ -68,14 +68,13 @@ func (r Rule) Matches(names []string) bool {
 	return true
 }
 
-// GlobalCacheDef defines a global per-user cache location. Its path is resolved
-// in priority order: EnvVar (if set and non-empty), then GoEnvKey (via
-// `go env <key>`), then the user's home directory joined with RelPath.
+// GlobalCacheDef defines a package-manager cache location by its conventional
+// path relative to a home directory. findGlobal joins RelPath onto the scanned
+// tree (e.g. a backup of a home directory), so caches are matched within that
+// tree rather than in the real home directory.
 type GlobalCacheDef struct {
-	Name     string // informational label, e.g. "Maven"
-	RelPath  string // path relative to the user's home directory (the fallback)
-	EnvVar   string // if set, prefer the value of this environment variable
-	GoEnvKey string // if set, resolve via `go env <key>`
+	Name    string // informational label, e.g. "Maven"
+	RelPath string // path relative to the (scanned) home directory
 }
 
 // GlobalCacheDefs is the built-in list of global cache locations.
@@ -91,9 +90,9 @@ var GlobalCacheDefs = []GlobalCacheDef{
 	{Name: "Cargo registry", RelPath: ".cargo/registry"},
 	{Name: "Cargo git", RelPath: ".cargo/git"},
 	{Name: "Pub", RelPath: ".pub-cache"},
-	{Name: "Deno", RelPath: ".cache/deno", EnvVar: "DENO_DIR"},
+	{Name: "Deno", RelPath: ".cache/deno"},
 	{Name: "Gem", RelPath: ".gem"},
 	{Name: "Crystal shards", RelPath: ".cache/shards"},
-	{Name: "Go module cache", RelPath: "go/pkg/mod", GoEnvKey: "GOMODCACHE"},
-	{Name: "Go build cache", RelPath: ".cache/go-build", GoEnvKey: "GOCACHE"},
+	{Name: "Go module cache", RelPath: "go/pkg/mod"},
+	{Name: "Go build cache", RelPath: ".cache/go-build"},
 }
