@@ -2,8 +2,7 @@
 
 > "I'm Winston Wolfe. I solve problems." - the cleaner from *Pulp Fiction*.
 
-`wolfe` is a small Go CLI that walks a tree of programming projects and reports
-- or deletes - regenerable build artifacts (`bin`/`obj`, `node_modules`,
+`wolfe` is a small Go CLI that walks a tree of programming projects and reports - or deletes - regenerable build artifacts (`bin`/`obj`, `node_modules`,
 `target`, `build`, …). It's built to **shrink backups**: run it over your
 `Coding` directory (or a backup copy) so regenerable output is excluded and the
 backup gets smaller. Everything it removes can be regenerated (dependencies
@@ -11,7 +10,7 @@ re-download, build output recompiles) - the Wolf cleans up the mess and leaves
 no trace.
 
 It can optionally also clean shared, per-user package caches (`./.m2`,
-`./.gradle/caches`, the Go module cache, …), and offers a polished interactive
+`./.gradle/caches`), and offers a polished interactive
 TUI for hands-on cleanup.
 
 > **Platform:** `wolfe` is built and tested primarily for **Linux**. The trash
@@ -45,7 +44,7 @@ sudo mv wolfe /usr/local/bin/
 
 ## Usage
 
-```
+```text
 wolfe [path] [flags]
 ```
 
@@ -73,7 +72,7 @@ wolfe ~/Coding -i                       # interactive select-and-delete
 
 Dry-run output:
 
-```
+```text
 [dry-run] would move to trash:
    4.2 GiB   /home/you/Coding/js/foo/node_modules   (JavaScript/TS)
    120 MiB   /home/you/Coding/cs/bar/bin            (C#/.NET)
