@@ -157,6 +157,8 @@ type Rule struct {
 | Type | Markers | Artifact dirs |
 |---|---|---|
 | C#/.NET | `*.csproj`, `*.sln`, `*.fsproj` | `bin`, `obj` |
+| JavaScript/TS | `package.json` | `node_modules`, `dist`, `build`, `.next`, `.nuxt` |
+| Rust | `Cargo.toml` | `target` |
 | Java | `pom.xml`, `build.gradle`, `build.gradle.kts` | `target`, `build`, `.gradle` |
 | Kotlin | `build.gradle.kts`, `*.kts`, `settings.gradle`, `settings.gradle.kts` | `build`, `.gradle`, `out` |
 | Android | `settings.gradle`/`settings.gradle.kts` **and** `gradlew` | `build`, `.gradle`, `app/build`, `.cxx` |
@@ -380,10 +382,22 @@ With `--delete`, the list prints as items are removed, ending with
 - **`main`** (light integration): run against a temp tree, assert exit codes and
   that dry-run / `--delete` / argument-validation (`-i` + `--quiet`,
   `-i` without TTY) behave correctly.
+- **End-to-end (Docker)**: an `e2e` package guarded by the `//go:build e2e` tag,
+  run inside a `golang:1.26` container (`e2e/run.sh` → `docker build` + `docker
+  run`). It builds the real `wolfe` binary and drives it against a fixture
+  project tree **and an isolated fake `$HOME`** (with `GOMODCACHE`/`GOCACHE`
+  redirected into that sandbox), asserting: dry-run deletes nothing and reports
+  correct totals; `--delete` removes artifacts but keeps marker files;
+  `--global --delete` removes the seeded caches (`~/.m2`, `~/.gradle`, the
+  redirected Go caches); and exit codes (`2` for bad path and for `-i`+`--quiet`
+  / `-i` without a TTY). The container isolates destructive and global-cache
+  behavior from the host. Opt-in: normal `go test ./...` does not run it.
 
 ## Deliverables
 
 - The Go module and packages above, with tests.
+- An `e2e/` directory: `e2e_test.go` (tag `e2e`), `Dockerfile`, and `run.sh` for
+  Dockerized end-to-end testing.
 - `README.md` documenting purpose, install/build, usage (all flags incl.
   `--interactive`/`-i`), the interactive TUI (with a screenshot or asciinema),
   the built-in project rules and global caches, the backup use case, safety
