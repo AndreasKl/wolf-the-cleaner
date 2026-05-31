@@ -98,86 +98,133 @@ report shows a combined total with a local/global breakdown.
 
 ## Architecture
 
-Layered into focused packages so the core (scanning, sizing, deletion) is pure
-standard library and unit-testable in isolation. The TUI is a thin
-Bubble Tea view over that same core, kept in its own package so the core never
-imports it.
+The design follows *A Philosophy of Software Design* (Ousterhout): a small number
+of **deep modules** with simple interfaces hiding substantial implementation,
+not many shallow ones. One core package, `wolf`, hides everything about *what*
+is reclaimable and *how* it is found, measured, and removed. The CLI and the TUI
+are thin **presenters** at a different layer — they decide how to show targets
+and which to delete, and never see markers, `filepath.WalkDir`, or
+`os.RemoveAll`. Complexity is pulled downward into `wolf`; errors are *defined
+out of existence* where possible (an unreadable subtree is skipped, not an
+error; deleting an already-absent directory is a no-op).
 
 ```
 it.kluth.buildcleaner
-├── main.go                  // parse flags, pick CLI or TUI path, set exit code
-├── internal/rules/          // built-in rule tables + matching logic
-│   ├── rules.go             //   ProjectRules table, GlobalCaches table
+├── main.go                  // CLI presenter: flags, text report, exit codes
+├── internal/wolf/           // DEEP CORE: find + measure + delete reclaimable dirs
+│   ├── wolf.go              //   Options, Target, Failure; Find, Measure, Delete, FormatSize
+│   └── wolf_test.go
+├── internal/rules/          // built-in data consumed only by wolf (hidden from callers)
+│   ├── rules.go             //   ProjectRules, GlobalCacheDefs, Rule.Matches
 │   └── rules_test.go
-├── internal/scanner/        // walk a tree -> []Candidate; collect global caches
-│   ├── scanner.go
-│   └── scanner_test.go
-├── internal/cleaner/        // size, report (CLI), and delete candidates
-│   ├── cleaner.go
-│   └── cleaner_test.go
-├── internal/tui/            // Bubble Tea select-and-delete model (interactive)
-│   ├── model.go             //   Model, Init/Update/View
-│   └── model_test.go
-├── go.mod                   // module it.kluth.buildcleaner, go 1.26
-│                            //   requires bubbletea, bubbles, lipgloss
+├── internal/tui/            // TUI presenter: Bubble Tea select-and-delete over wolf
+│   ├── tui.go               //   Model, Init/Update; messages; Run
+│   ├── view.go              //   View
+│   └── tui_test.go
+├── e2e/                     // Dockerized end-to-end tests (build tag `e2e`)
+├── go.mod                   // module it.kluth.buildcleaner; requires bubbletea, bubbles, lipgloss
 └── README.md
 ```
 
-### Core type
+Why `wolf` is deep: its interface is four functions and two structs, but behind
+them sit the rule table, the `WalkDir` traversal with skip/symlink/dedup logic,
+`go env`/env-var cache resolution, `du`-style sizing, and `os.RemoveAll`. A
+caller can reclaim space without knowing any of that.
+
+### Core types (the `wolf` interface)
 
 ```go
-// Candidate is one directory that may be deleted.
-type Candidate struct {
-    Path  string // absolute path of the directory to delete
-    Type  string // informational label, e.g. "C#/.NET", "Maven (global)"
-    Scope Scope  // Local or Global
+// Options configures a scan.
+type Options struct {
+    Root          string // directory tree to scan for project artifacts
+    IncludeGlobal bool   // also include the user's global package caches
 }
 
-type Scope int
-const ( Local Scope = iota; Global )
+// Target is one directory that can be reclaimed.
+type Target struct {
+    Path   string // absolute path of the directory
+    Kind   string // informational label, e.g. "JavaScript/TS" or "Maven (global cache)"
+    Global bool   // true for a shared per-user cache, false for a project artifact
+    Size   int64  // measured size in bytes; 0 until Measure has been applied
+}
+
+// Failure records a directory that could not be deleted.
+type Failure struct {
+    Path string
+    Err  error
+}
 ```
 
-### `rules`
-
-A static table mapping a project type to its marker files and the artifact
-directories to remove when that project is detected. A marker may be a literal
-filename or a glob (e.g. `*.csproj`). A rule matches a directory when **any**
-marker is present **in that same directory**.
+### `wolf` (deep core)
 
 ```go
-type Rule struct {
-    Name      string   // "C#/.NET"
-    Markers   []string // filenames or globs that identify the project
-    Artifacts []string // child dir names (relative) to delete, e.g. "bin", "app/build"
-}
+// Find walks opts.Root for project artifacts and, if opts.IncludeGlobal, adds
+// the user's existing global caches. Returned Targets are unmeasured (Size 0).
+// Find never returns an error: unreadable subtrees and missing caches are
+// simply skipped. Matched artifact directories are not descended into, symlinks
+// are not followed, nested projects are still found, and duplicates (e.g. a
+// build/ matched by two rules) are removed.
+func Find(opts Options) []Target
+
+// Measure returns the total size in bytes of the regular files under path
+// (best effort; unreadable entries contribute 0). Callers apply it to fill in
+// Target.Size — eagerly (CLI) or lazily/streamed (TUI).
+func Measure(path string) int64
+
+// Delete removes each target with os.RemoveAll, returning bytes reclaimed
+// (summed from the targets' Size) and any directories it could not remove.
+// Deleting an absent directory is a no-op, not a failure.
+func Delete(targets []Target) (reclaimed int64, failed []Failure)
+
+// FormatSize renders a byte count with binary (1024-based) IEC units —
+// B, KiB, MiB, GiB, TiB — to one decimal place (e.g. "4.2 GiB"). Shared by both
+// presenters; the GB/MB in this doc's examples are illustrative.
+func FormatSize(n int64) string
 ```
+
+`wolf` is the only package that imports `rules`. Splitting `Find` from `Measure`
+keeps the interface small while serving both the CLI's eager sizing and the
+TUI's lazy, streamed sizing over the same data.
+
+### Detection data (`rules`, internal to `wolf`)
+
+A rule matches a directory when at least one **marker** is present in it (plus,
+for Android, the extra `gradlew` requirement); then each existing **artifact**
+directory beside the marker becomes a `Target`. Markers and artifacts may be
+globs; an artifact may contain `/` to name a nested dir (`app/build`). Lists
+follow the canonical `github/gitignore` templates per ecosystem (and the
+Crystal/Deno docs).
 
 **Built-in project rules:**
 
 | Type | Markers | Artifact dirs |
 |---|---|---|
-| C#/.NET | `*.csproj`, `*.sln`, `*.fsproj` | `bin`, `obj` |
-| JavaScript/TS | `package.json` | `node_modules`, `dist`, `build`, `.next`, `.nuxt` |
+| C#/.NET | `*.csproj`, `*.sln`, `*.fsproj`, `*.vbproj` | `bin`, `obj` |
+| JavaScript/TS | `package.json` | `node_modules`, `dist`, `build`, `.next`, `.nuxt`, `out`, `.output`, `.svelte-kit`, `.parcel-cache`, `.turbo`, `.vite`, `coverage`, `.cache` |
+| Deno | `deno.json`, `deno.jsonc`, `deno.lock` | `node_modules`, `vendor` |
 | Rust | `Cargo.toml` | `target` |
-| Java | `pom.xml`, `build.gradle`, `build.gradle.kts` | `target`, `build`, `.gradle` |
-| Kotlin | `build.gradle.kts`, `*.kts`, `settings.gradle`, `settings.gradle.kts` | `build`, `.gradle`, `out` |
-| Android | `settings.gradle`/`settings.gradle.kts` **and** `gradlew` | `build`, `.gradle`, `app/build`, `.cxx` |
-| Flutter/Dart | `pubspec.yaml` | `build`, `.dart_tool`, `.flutter-plugins`, `.packages` |
-| Go | `go.mod` | `bin` |
-| Ruby | `Gemfile`, `*.gemspec` | `vendor/bundle`, `.bundle` |
-| Python | `pyproject.toml`, `setup.py`, `requirements.txt` | `__pycache__`, `.venv`, `venv`, `*.egg-info`, `build`, `dist`, `.pytest_cache`, `.mypy_cache` |
+| Maven | `pom.xml` | `target` |
+| Gradle | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` | `build`, `.gradle` |
+| Android | `settings.gradle`/`settings.gradle.kts` **and** `gradlew` | `build`, `.gradle`, `app/build`, `.cxx`, `.externalNativeBuild`, `captures` |
+| Flutter/Dart | `pubspec.yaml` | `build`, `.dart_tool` |
+| Ruby | `Gemfile`, `*.gemspec` | `vendor/bundle`, `.bundle`, `.yardoc`, `coverage`, `pkg` |
+| Python | `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt` | `__pycache__`, `.venv`, `venv`, `*.egg-info`, `.eggs`, `build`, `dist`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `htmlcov`, `.hypothesis` |
+| Ruff | `ruff.toml`, `.ruff.toml` | `.ruff_cache` |
 | Crystal | `shard.yml` | `lib`, `.shards`, `bin` |
 
-Note on overlap: Android/Kotlin/Java share Gradle markers. Multiple rules may
-match the same directory; the scanner **dedupes candidates by absolute path**, so
-a directory is queued at most once. The `Type` label is informational.
+There is deliberately **no local Go rule**: a Go checkout has no canonical
+reclaimable directory (binaries are loose files, `vendor/` is usually
+committed). Go's reclaimable space is its global module and build caches below.
+Gradle/Maven/Android share markers; the dedup-by-path in `Find` ensures a
+`build/` is queued once. The `Kind` label is informational. (`.flutter-plugins`
+and `.packages` are files, not directories, so they are not listed.)
 
-Artifact entries may contain a path separator (e.g. `app/build`) to target a
-nested directory relative to the project root.
+**Built-in global caches** (included only if the resolved path exists). Each is
+resolved in priority order: a named environment variable, then `go env <key>`,
+then `$HOME` + relative path (`$HOME` via `os.UserHomeDir()`; if `go` is
+unavailable, the relative fallback is used).
 
-**Built-in global caches** (only included if the path exists):
-
-| Tool | Path |
+| Tool | Path / resolution |
 |---|---|
 | Maven | `~/.m2/repository` |
 | Ivy | `~/.ivy2/cache` |
@@ -185,80 +232,42 @@ nested directory relative to the project root.
 | NuGet | `~/.nuget/packages` |
 | npm | `~/.npm` |
 | Yarn | `~/.cache/yarn` |
+| pnpm | `~/.local/share/pnpm/store` |
 | pip | `~/.cache/pip` |
-| Cargo | `~/.cargo/registry` |
+| Cargo registry | `~/.cargo/registry` |
+| Cargo git | `~/.cargo/git` |
 | Pub (Dart/Flutter) | `~/.pub-cache` |
+| Deno | `$DENO_DIR`, else `~/.cache/deno` |
 | Gem | `~/.gem` |
-| Go module cache | `go env GOMODCACHE` (fallback `~/go/pkg/mod`) |
-| Go build cache | `go env GOCACHE` (fallback `~/.cache/go-build`) |
+| Crystal shards | `~/.cache/shards` |
+| Go module cache | `go env GOMODCACHE`, else `~/go/pkg/mod` |
+| Go build cache | `go env GOCACHE`, else `~/.cache/go-build` |
 
-`$HOME` is resolved via `os.UserHomeDir()`. The Go cache paths are resolved by
-shelling out to `go env GOMODCACHE` / `go env GOCACHE`; if `go` is unavailable
-or returns empty, fall back to the documented default locations, and if those
-don't exist, silently skip them.
+### Traversal (inside `Find`)
 
-### `scanner`
-
-```go
-func ScanLocal(root string) ([]Candidate, error)   // walk tree for project artifacts
-func ScanGlobal() ([]Candidate, error)              // resolve existing global caches
-```
-
-`ScanLocal` uses `filepath.WalkDir` starting at `root`:
-
-1. For each **directory** visited, check every `ProjectRule`: if any marker is
-   present in the directory, then for each of that rule's artifact entries, if
-   the artifact directory exists as a child, emit a `Candidate{Scope: Local}`.
-2. **Do not descend into a matched artifact directory** — return
-   `filepath.SkipDir` for it. This avoids the `node_modules`-full-of-
-   `package.json` trap and is much faster. (Implementation: collect the set of
-   matched artifact paths at each level and skip them as the walk reaches them.)
-3. **Continue past a matched project** into its other subdirectories so nested
-   projects are still found (monorepo support).
-4. **Do not follow symlinks** — `WalkDir` does not follow them by default; dirs
-   that are symlinks are not traversed into.
-5. Dedupe emitted candidates by absolute path.
-
-`ScanGlobal` builds candidates from the `GlobalCaches` table, including only
-those whose resolved path exists.
-
-Walk errors on an individual path (permission denied, etc.) are collected as
-warnings and the walk continues; they do not abort the scan.
-
-### `cleaner`
-
-```go
-func DirSize(path string) (int64, error)   // recursive sum of regular file sizes
-func Report(w io.Writer, cands []SizedCandidate, opts ReportOpts)
-func Delete(cands []Candidate) (freed int64, failures []error)
-```
-
-- Sizes each candidate via `DirSize` (a `filepath.WalkDir` summing `info.Size()`
-  of regular files; symlinks not followed, size-of-symlink ignored).
-- `Report` prints, per candidate, `<human-size>  <path>  (<type>)`, then a
-  total. When both scopes are present, the total line includes a
-  `(local: X / global: Y)` breakdown. `--quiet` prints only the total line(s).
-- `Delete` removes each candidate with `os.RemoveAll`, summing freed bytes
-  (pre-computed sizes) for successes and collecting failures.
-- Human-readable sizes use **binary (1024-based) units** with labels
-  `B`, `KiB`, `MiB`, `GiB`, `TiB`, formatted to 1 decimal place (e.g. `4.2 GiB`).
-  The example outputs in this doc that show `GB`/`MB` are illustrative; the
-  implementation uses the IEC labels above consistently.
+`Find` uses `filepath.WalkDir` from `Root`. At each directory it reads the entry
+names, asks each `rules.Rule` whether it matches, and for every matching rule
+turns each existing artifact directory into a `Target{Global: false}`. It then
+**does not descend** into a matched artifact dir (`filepath.SkipDir`) — avoiding
+the `node_modules`-full-of-`package.json` trap and most of the walk cost — while
+still descending into other subdirectories so **nested projects** are found.
+Symlinked directories are **not** followed; results are **deduped by path**.
+Unreadable directories are skipped silently. Global caches are appended from the
+`rules.GlobalCacheDefs` table, resolving each path and keeping only those that
+exist as real (non-symlink) directories.
 
 ### `tui` (interactive mode)
 
-A Bubble Tea **select-and-delete** model that reuses `scanner` and `cleaner` —
-it adds no deletion or sizing logic of its own, only presentation and selection.
+A Bubble Tea **select-and-delete** model that reuses `wolf` — it adds no
+deletion or sizing logic of its own, only presentation and selection.
 
 Flow / states:
 
-1. **Scanning** — show a `bubbles/spinner` with a live count while `scanner`
-   runs in a background `tea.Cmd`. Candidates **stream into the list as they are
-   found** (incremental `tea.Msg`s) rather than blocking on a full scan, so the
-   UI is responsive immediately even on a huge tree. Sizing is **lazy and
-   progressive**: `cleaner.DirSize` runs as background `tea.Cmd`s, prioritized
-   for currently-visible rows; rows show `…` until their size lands. The
-   running total updates as sizes arrive.
+1. **Scanning** — show a `bubbles/spinner` while `wolf.Find` runs in a
+   background `tea.Cmd`. Sizing is **lazy and progressive**: `wolf.Measure` runs
+   as background `tea.Cmd`s feeding a channel; rows show `…` until their size
+   lands. The running total updates as sizes arrive, so a slow `du`-style sizing
+   pass never blocks interaction.
 2. **Selecting** — a **scrollable, paginated** checklist built on
    `bubbles/list` (its viewport only renders visible rows, so it stays smooth at
    thousands of entries), **sorted largest-first** as sizes resolve. Each row:
@@ -276,9 +285,9 @@ Flow / states:
 3. **Confirm** — a summary ("Delete N directories, X selected?") with
    `y` confirm / `n` back to selecting. (Non-bypassable; this is the only delete
    gate in interactive mode.)
-4. **Deleting** — a `bubbles/progress` bar advancing per candidate as
-   `cleaner.Delete` removes each (driven by `tea.Cmd`s emitting per-item msgs);
-   failures collected and shown.
+4. **Deleting** — a `bubbles/progress` bar advancing per target as `wolf.Delete`
+   removes each (driven by `tea.Cmd`s emitting per-item msgs); failures collected
+   and shown.
 5. **Done** — final summary: freed total, count, and any failures. `q` exits.
 
 Styling via `lipgloss`: a titled header, dimmed secondary text (type/path),
@@ -286,38 +295,41 @@ accent color on the selected total and progress bar, red on failures. Respects
 `NO_COLOR` / non-TTY by degrading gracefully (and `main` refuses `-i` without a
 TTY, exiting `2` with a hint to drop the flag).
 
-The model takes its inputs (`[]SizedCandidate`, or a scan function) via
-constructor injection so it can be driven in tests without a real terminal.
+The model takes its `wolf` operations (`Find`, `Measure`, `Delete`) via
+function fields defaulted in the constructor, so tests can inject fakes and
+drive it without a real terminal or filesystem.
 
-**Scalability (potentially thousands of candidates):** the list is virtualized
-(only visible rows render), candidates stream in during scan, and sizing is
-lazy/prioritized for visible rows — so neither a slow scan nor a slow `du`-style
-sizing pass blocks interaction. Selection state is a `map[path]bool` (or a bit
-on each item), so toggling, "select all", and the running total are O(n) over a
+**Scalability (potentially thousands of targets):** the list is virtualized
+(only visible rows render), and sizing is lazy via background `wolf.Measure`
+commands so a slow `du`-style pass never blocks interaction. Selection is a bit
+on each item, so toggling, "select all", and the running total are O(n) over a
 slice we already hold, never re-walking the filesystem. Sorting by size is
-re-applied incrementally as sizes resolve (stable sort), avoiding visible
-churn.
+re-applied as sizes resolve (stable sort) to avoid visible churn.
 
 ### Data flow
 
 ```
 main
   ├─ parse flags (path, --global, --delete, --quiet, --interactive)
-  ├─ validate (interactive+quiet -> exit 2; interactive without TTY -> exit 2)
+  ├─ validate (interactive+quiet -> exit 2; interactive without TTY -> exit 2;
+  │            invalid root path -> exit 2)
   │
   ├─ if --interactive:
-  │     run tui.Model (scans + sizes internally via scanner/cleaner,
-  │     user selects, confirms, deletes); exit non-zero on delete failures
+  │     tui.Run(opts): Model calls wolf.Find, lazily wolf.Measure, lets the user
+  │     select, confirms, then wolf.Delete; exit non-zero on delete failures
   │
   └─ else (CLI path):
-        cands  = scanner.ScanLocal(path)
-        if --global: cands += scanner.ScanGlobal()
-        sized  = cleaner.DirSize for each candidate
-        cleaner.Report(stdout, sized, opts)   // honors --quiet
+        targets = wolf.Find(Options{Root, IncludeGlobal: --global})
+        for each: t.Size = wolf.Measure(t.Path)          // eager
+        print report (sorted largest-first, local/global breakdown; honors --quiet)
         if --delete:
-            freed, failures = cleaner.Delete(cands)
-            print "Freed: <size>"; if failures -> stderr, exit non-zero
+            reclaimed, failed = wolf.Delete(targets)
+            print "Freed: <size>"; if failed -> stderr, exit non-zero
 ```
+
+The text report (formatting, `--quiet`, the dry-run hint) lives in `main` — it
+is CLI presentation, a different layer from `wolf`'s data. `wolf.FormatSize`
+renders the sizes for both presenters.
 
 ## Output
 
@@ -356,18 +368,20 @@ With `--delete`, the list prints as items are removed, ending with
 - **`rules`**: table tests for marker matching, including glob markers
   (`*.csproj`), the Android two-marker requirement, and that artifact lists are
   correct per type.
-- **`scanner`**: build temp trees with `t.TempDir()` containing fixture
-  projects; assert:
-  - correct candidates for each project type,
+- **`wolf`**: build temp trees with `t.TempDir()` and assert against `Find`,
+  `Measure`, and `Delete`:
+  - `Find` returns the correct targets per project type (incl. Deno/Ruff),
   - nested project (monorepo) detection,
   - it does **not** descend into matched artifact dirs (e.g. a `package.json`
-    placed inside `node_modules` must not produce a candidate),
-  - symlinked directories are not traversed,
-  - dedupe when multiple rules match one directory.
-- **`cleaner`**: temp tree with files of known sizes → assert `DirSize` totals;
-  assert dry-run `Report` deletes nothing; assert `Delete` removes the dirs and
-  returns the correct freed total; assert a delete failure is reported and
-  surfaced.
+    placed inside `node_modules` must not produce a target),
+  - symlinked directories are neither traversed nor returned,
+  - dedupe when multiple rules match one directory (e.g. Gradle `build/`),
+  - global caches resolved via env var / `go env` / home fallback (use a fake
+    `$HOME` and `DENO_DIR`/`GOMODCACHE` env to avoid touching the real ones),
+  - `Measure` totals files of known sizes; unreadable entries contribute 0,
+  - `Delete` removes the dirs, returns the correct reclaimed total, treats an
+    absent dir as a no-op, and surfaces a failure when removal is blocked,
+  - `FormatSize` renders IEC units (`0 B`, `1.0 KiB`, `1.5 KiB`, `1.0 MiB`).
 - **`tui`**: drive the Bubble Tea `Model` headlessly by calling
   `Update(msg)` with synthetic messages (key presses, scan-result msgs, sizing
   msgs, delete-result msgs) and asserting model state and `View()` output —
