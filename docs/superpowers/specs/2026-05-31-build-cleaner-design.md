@@ -2,7 +2,12 @@
 
 **Date:** 2026-05-31
 **Module:** `it.kluth.buildcleaner`
-**Language:** Go 1.26 (standard library only, no external dependencies)
+**Language:** Go 1.26
+**Dependencies:** standard library for the core (scanning, sizing, deletion);
+the [Charm](https://github.com/charmbracelet) stack for the optional interactive
+TUI — `bubbletea` (event loop/model), `bubbles` (list/spinner/progress
+components), and `lipgloss` (styling). The non-interactive CLI path never enters
+the TUI and works without a TTY.
 
 ## Purpose
 
@@ -20,8 +25,11 @@ It can optionally also clean **global, per-user package caches** (`~/.m2`,
 
 - Safe by default: a **dry-run** that deletes nothing unless `--delete` is given.
 - Report each deletable directory, its size, and a **total reclaimable** figure.
-- **Non-interactive** — flag-driven, no prompts — so it drops into a backup
-  script or cron job. Clear exit codes for automation.
+- **Scriptable by default** — the default and `--delete` paths are flag-driven
+  with no prompts, so the tool drops into a backup script or cron job with clear
+  exit codes for automation.
+- **Optional polished TUI** (`--interactive`) for hands-on use: review
+  candidates, cherry-pick what to delete, and delete from within the TUI.
 - Correct detection: only flag a directory when there is a real project next to
   it (marker file + the artifact directory present together).
 - Handle **nested projects** (monorepos) and large trees efficiently.
@@ -29,9 +37,12 @@ It can optionally also clean **global, per-user package caches** (`~/.m2`,
 ## Non-goals (v1)
 
 - No user config file / rule overrides — the ruleset is built-in only.
-- No interactive confirmation prompts, no trash/recycle bin.
+- No trash/recycle bin — deletion is permanent (`os.RemoveAll`).
 - No following of symlinks.
-- No concurrency/parallel sizing (can be added later if needed).
+- No concurrency in the **non-interactive CLI path** — it scans and sizes
+  sequentially (simple, deterministic output). The TUI path does run scanning
+  and sizing as background `tea.Cmd`s for responsiveness; that asynchrony lives
+  entirely in the `tui` package, not the core.
 
 ## CLI
 
@@ -48,12 +59,24 @@ buildcleaner [path] [flags]
 
   --delete        Actually remove the listed directories. Without this flag
                   the run is a dry-run (default) and deletes nothing.
+                  (Ignored in --interactive mode, which confirms in the TUI.)
+
+  --interactive   Launch the interactive TUI (Bubble Tea): scan, then pick
+                  which candidates to delete from a checklist and delete them
+                  in-TUI. Requires a TTY. Mutually exclusive with --quiet.
+                  Short form: -i.
 
   --quiet         Suppress the per-directory listing; print only the final
-                  total(s). Useful for scripted/backup runs.
+                  total(s). Useful for scripted/backup runs. Mutually
+                  exclusive with --interactive.
 
   --help          Show usage.
 ```
+
+`--global` composes with `--interactive` (the global caches appear in the TUI
+checklist alongside local artifacts). Passing both `--interactive` and `--quiet`
+is an argument error (exit `2`). In `--interactive` mode the `--delete` flag is
+redundant and ignored — deletion is gated by the in-TUI confirmation instead.
 
 Examples:
 
@@ -71,22 +94,28 @@ report shows a combined total with a local/global breakdown.
 
 ## Architecture
 
-Standard-library-only, layered into focused packages so the scanner and cleaner
-can be unit-tested in isolation.
+Layered into focused packages so the core (scanning, sizing, deletion) is pure
+standard library and unit-testable in isolation. The TUI is a thin
+Bubble Tea view over that same core, kept in its own package so the core never
+imports it.
 
 ```
 it.kluth.buildcleaner
-├── main.go                  // parse flags, wire scanner -> cleaner, set exit code
+├── main.go                  // parse flags, pick CLI or TUI path, set exit code
 ├── internal/rules/          // built-in rule tables + matching logic
 │   ├── rules.go             //   ProjectRules table, GlobalCaches table
 │   └── rules_test.go
 ├── internal/scanner/        // walk a tree -> []Candidate; collect global caches
 │   ├── scanner.go
 │   └── scanner_test.go
-├── internal/cleaner/        // size, report, and delete candidates
+├── internal/cleaner/        // size, report (CLI), and delete candidates
 │   ├── cleaner.go
 │   └── cleaner_test.go
+├── internal/tui/            // Bubble Tea select-and-delete model (interactive)
+│   ├── model.go             //   Model, Init/Update/View
+│   └── model_test.go
 ├── go.mod                   // module it.kluth.buildcleaner, go 1.26
+│                            //   requires bubbletea, bubbles, lipgloss
 └── README.md
 ```
 
@@ -210,18 +239,78 @@ func Delete(cands []Candidate) (freed int64, failures []error)
   The example outputs in this doc that show `GB`/`MB` are illustrative; the
   implementation uses the IEC labels above consistently.
 
+### `tui` (interactive mode)
+
+A Bubble Tea **select-and-delete** model that reuses `scanner` and `cleaner` —
+it adds no deletion or sizing logic of its own, only presentation and selection.
+
+Flow / states:
+
+1. **Scanning** — show a `bubbles/spinner` with a live count while `scanner`
+   runs in a background `tea.Cmd`. Candidates **stream into the list as they are
+   found** (incremental `tea.Msg`s) rather than blocking on a full scan, so the
+   UI is responsive immediately even on a huge tree. Sizing is **lazy and
+   progressive**: `cleaner.DirSize` runs as background `tea.Cmd`s, prioritized
+   for currently-visible rows; rows show `…` until their size lands. The
+   running total updates as sizes arrive.
+2. **Selecting** — a **scrollable, paginated** checklist built on
+   `bubbles/list` (its viewport only renders visible rows, so it stays smooth at
+   thousands of entries), **sorted largest-first** as sizes resolve. Each row:
+   `[x|space] <size>  <path>  <type>`. Globals (when `--global`) are mixed in
+   and tagged `(global)`. By default all rows start selected. A footer shows the
+   **live selected total** (size + count), the visible range (e.g. `120–140 of
+   3,184`), and key hints.
+   - Keys: `↑/↓`/`j`/`k` move · `pgup/pgdn` page · `space` toggle row ·
+     `a` toggle all · `/` **fuzzy filter by path/type** (list's built-in
+     filter; toggles narrow huge lists fast) · `g` toggle only-globals ·
+     `enter` proceed to confirm · `q`/`ctrl+c` quit without deleting.
+   - `a` (toggle all) and the selected-total operate on the **full candidate
+     set**, not just the visible page — and when a filter is active, on the
+     filtered subset.
+3. **Confirm** — a summary ("Delete N directories, X selected?") with
+   `y` confirm / `n` back to selecting. (Non-bypassable; this is the only delete
+   gate in interactive mode.)
+4. **Deleting** — a `bubbles/progress` bar advancing per candidate as
+   `cleaner.Delete` removes each (driven by `tea.Cmd`s emitting per-item msgs);
+   failures collected and shown.
+5. **Done** — final summary: freed total, count, and any failures. `q` exits.
+
+Styling via `lipgloss`: a titled header, dimmed secondary text (type/path),
+accent color on the selected total and progress bar, red on failures. Respects
+`NO_COLOR` / non-TTY by degrading gracefully (and `main` refuses `-i` without a
+TTY, exiting `2` with a hint to drop the flag).
+
+The model takes its inputs (`[]SizedCandidate`, or a scan function) via
+constructor injection so it can be driven in tests without a real terminal.
+
+**Scalability (potentially thousands of candidates):** the list is virtualized
+(only visible rows render), candidates stream in during scan, and sizing is
+lazy/prioritized for visible rows — so neither a slow scan nor a slow `du`-style
+sizing pass blocks interaction. Selection state is a `map[path]bool` (or a bit
+on each item), so toggling, "select all", and the running total are O(n) over a
+slice we already hold, never re-walking the filesystem. Sorting by size is
+re-applied incrementally as sizes resolve (stable sort), avoiding visible
+churn.
+
 ### Data flow
 
 ```
 main
-  ├─ parse flags (path, --global, --delete, --quiet)
-  ├─ cands  = scanner.ScanLocal(path)
-  ├─ if --global: cands += scanner.ScanGlobal()
-  ├─ sized  = cleaner.DirSize for each candidate
-  ├─ cleaner.Report(stdout, sized, opts)
-  └─ if --delete:
-        freed, failures = cleaner.Delete(cands)
-        print "Freed: <size>"; if failures -> print to stderr, exit non-zero
+  ├─ parse flags (path, --global, --delete, --quiet, --interactive)
+  ├─ validate (interactive+quiet -> exit 2; interactive without TTY -> exit 2)
+  │
+  ├─ if --interactive:
+  │     run tui.Model (scans + sizes internally via scanner/cleaner,
+  │     user selects, confirms, deletes); exit non-zero on delete failures
+  │
+  └─ else (CLI path):
+        cands  = scanner.ScanLocal(path)
+        if --global: cands += scanner.ScanGlobal()
+        sized  = cleaner.DirSize for each candidate
+        cleaner.Report(stdout, sized, opts)   // honors --quiet
+        if --delete:
+            freed, failures = cleaner.Delete(cands)
+            print "Freed: <size>"; if failures -> stderr, exit non-zero
 ```
 
 ## Output
@@ -273,12 +362,25 @@ With `--delete`, the list prints as items are removed, ending with
   assert dry-run `Report` deletes nothing; assert `Delete` removes the dirs and
   returns the correct freed total; assert a delete failure is reported and
   surfaced.
+- **`tui`**: drive the Bubble Tea `Model` headlessly by calling
+  `Update(msg)` with synthetic messages (key presses, scan-result msgs, sizing
+  msgs, delete-result msgs) and asserting model state and `View()` output —
+  no real terminal needed. Cover: streamed candidates appear; lazy sizes update
+  the running total; `space`/`a` toggle selection correctly (incl. under an
+  active filter and across pages); confirm gate must be passed before any
+  `Delete` is invoked (use a fake cleaner to assert it isn't called on quit);
+  delete failures surface in the Done state. A large synthetic set (e.g. 5,000
+  candidates) verifies selection/total operations stay correct and the list
+  paginates. Optionally use `charmbracelet/x/exp/teatest` for golden-frame
+  coverage.
 - **`main`** (light integration): run against a temp tree, assert exit codes and
-  that `--delete` vs dry-run behave correctly.
+  that dry-run / `--delete` / argument-validation (`-i` + `--quiet`,
+  `-i` without TTY) behave correctly.
 
 ## Deliverables
 
 - The Go module and packages above, with tests.
-- `README.md` documenting purpose, install/build, usage (all flags), the
-  built-in project rules and global caches, the backup use case, safety notes
-  (dry-run default), and exit codes.
+- `README.md` documenting purpose, install/build, usage (all flags incl.
+  `--interactive`/`-i`), the interactive TUI (with a screenshot or asciinema),
+  the built-in project rules and global caches, the backup use case, safety
+  notes (dry-run default), and exit codes.
