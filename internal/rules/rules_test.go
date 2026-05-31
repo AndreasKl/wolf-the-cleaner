@@ -29,6 +29,40 @@ func TestRuleMatches(t *testing.T) {
 	}
 }
 
+func TestProjectRulesCoverExpectedTypes(t *testing.T) {
+	want := []string{"C#/.NET", "JavaScript/TS", "Rust", "Java", "Kotlin", "Android", "Flutter/Dart", "Go", "Ruby", "Python", "Crystal"}
+	have := map[string]bool{}
+	for _, r := range ProjectRules {
+		have[r.Name] = true
+	}
+	for _, name := range want {
+		if !have[name] {
+			t.Errorf("missing built-in rule for %q", name)
+		}
+	}
+}
+
+func TestJavaScriptRuleMatchesPackageJSON(t *testing.T) {
+	var js Rule
+	for _, r := range ProjectRules {
+		if r.Name == "JavaScript/TS" {
+			js = r
+		}
+	}
+	if !js.Matches([]string{"package.json", "index.js"}) {
+		t.Error("JavaScript/TS rule should match a dir containing package.json")
+	}
+	found := false
+	for _, a := range js.Artifacts {
+		if a == "node_modules" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("JavaScript/TS rule should delete node_modules")
+	}
+}
+
 func TestProjectRulesNonEmpty(t *testing.T) {
 	if len(ProjectRules) < 9 {
 		t.Fatalf("expected at least 9 built-in rules, got %d", len(ProjectRules))

@@ -17,6 +17,8 @@ type Rule struct {
 // ProjectRules is the built-in rule table.
 var ProjectRules = []Rule{
 	{Name: "C#/.NET", Markers: []string{"*.csproj", "*.sln", "*.fsproj"}, Artifacts: []string{"bin", "obj"}},
+	{Name: "JavaScript/TS", Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt"}},
+	{Name: "Rust", Markers: []string{"Cargo.toml"}, Artifacts: []string{"target"}},
 	{Name: "Java", Markers: []string{"pom.xml", "build.gradle", "build.gradle.kts"}, Artifacts: []string{"target", "build", ".gradle"}},
 	{Name: "Kotlin", Markers: []string{"build.gradle.kts", "*.kts", "settings.gradle", "settings.gradle.kts"}, Artifacts: []string{"build", ".gradle", "out"}},
 	{Name: "Android", Markers: []string{"settings.gradle", "settings.gradle.kts"}, AlsoRequire: []string{"gradlew"}, Artifacts: []string{"build", ".gradle", "app/build", ".cxx"}},
