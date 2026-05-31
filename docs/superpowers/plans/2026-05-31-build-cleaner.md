@@ -4,28 +4,48 @@
 
 **Goal:** A Go CLI (`it.kluth.buildcleaner`) that walks a project tree and reports (dry-run by default) or deletes regenerable build artifacts to shrink backups, with an opt-in `--global` cache mode and an optional Bubble Tea select-and-delete TUI.
 
-**Architecture:** A pure-stdlib core split into three packages — `rules` (data + matching), `scanner` (tree walk → candidates), `cleaner` (size/report/delete) — plus a `tui` package that is a thin Bubble Tea view over that core. `main.go` parses flags and dispatches to the non-interactive CLI path or the TUI.
+**Architecture (revised — APoSD):** one **deep core** package `wolf` (`Find` +
+`Measure` + `Delete` + `FormatSize`) hides the rule table, tree walk, sizing,
+cache resolution, and deletion. `rules` is internal data consumed only by
+`wolf`. `main.go` (CLI) and `internal/tui` are thin **presenters** over `wolf`.
 
 **Tech Stack:** Go 1.26, standard library for the core; `github.com/charmbracelet/bubbletea` v1.3.10, `bubbles` v1.0.0, `lipgloss` v1.1.0 for the TUI.
 
-**Spec:** `docs/superpowers/specs/2026-05-31-build-cleaner-design.md`
+**Spec:** `docs/superpowers/specs/2026-05-31-build-cleaner-design.md` — **authoritative.**
+
+> **REVISION NOTE (supersedes original Tasks 3–4).** This plan originally split
+> the core into `scanner` + `cleaner`. It was reworked to a single deep `wolf`
+> module per *A Philosophy of Software Design*, and the rule set was made
+> comprehensive and research-backed (per `github/gitignore`), adding Deno and
+> Ruff and dropping the non-canonical local Go rule. **Task 3 below is now
+> "wolf core"; the old `scanner`/`cleaner` task bodies are obsolete.** Tasks 5–8
+> read `wolf.Find`/`Measure`/`Delete`/`FormatSize` instead of `scanner`/`cleaner`.
+> Where this plan's code disagrees with the spec or the `wolf` interface, the
+> spec wins.
+>
+> **REVISION NOTE 2 (trash + tooling).** Deletion now defaults to **moving to
+> the XDG trash** (`wolf.Delete(targets, wolf.Disposal)` with `ToTrash` /
+> `Permanent`, implemented in `internal/wolf/trash.go`); a `--no-trash` flag
+> selects permanent `os.RemoveAll`. The CLI/TUI wording and `tui.Options.Permanent`
+> follow suit. The repo also adds `.golangci.yml`, a `.github/workflows/ci.yml`
+> (gofmt + vet + test + golangci-lint), and the codebase is `gofmt`-clean.
 
 ---
 
 ## File Structure
 
 - `go.mod` — module `it.kluth.buildcleaner`, go 1.26, Charm deps
-- `internal/rules/rules.go` — `Rule`, `ProjectRules`, `Rule.Matches`, `GlobalCacheDef`, `GlobalCacheDefs`
-- `internal/rules/rules_test.go`
-- `internal/scanner/scanner.go` — `Scope`, `Candidate`, `ScanLocal`, `ScanGlobal`
-- `internal/scanner/scanner_test.go`
-- `internal/cleaner/cleaner.go` — `SizedCandidate`, `DirSize`, `HumanSize`, `ReportOpts`, `Report`, `Delete`
-- `internal/cleaner/cleaner_test.go`
+- `internal/wolf/rules.go` — `Rule`, `ProjectRules`, `Rule.Matches`, `GlobalCacheDef`, `GlobalCacheDefs` (data; internal to `wolf`)
+- `internal/wolf/rules_test.go`
+- `internal/wolf/wolf.go` — `Options`, `Target`, `Failure`, `Find`, `Measure`, `Delete`, `FormatSize`
+- `internal/wolf/trash.go` — move-to-trash disposal
+- `internal/wolf/wolf_test.go`
 - `internal/tui/tui.go` — `Options`, `Model`, messages, `New`, `Init`, `Update`, helpers, `Run`
 - `internal/tui/view.go` — `View`
 - `internal/tui/tui_test.go`
 - `main.go` — flag parsing, dispatch, `runCLI`, `isTTY`
 - `main_test.go` — integration over a temp tree
+- `e2e/` — Dockerized end-to-end tests (`doc.go`, `e2e_test.go` tagged `e2e`, `Dockerfile`, `run.sh`)
 - `README.md`
 
 ---
@@ -63,17 +83,17 @@ git commit -m "chore: init go module it.kluth.buildcleaner with Charm deps"
 
 ---
 
-## Task 2: rules package
+## Task 2: rules data (in `wolf`)
 
 **Files:**
-- Create: `internal/rules/rules.go`
-- Test: `internal/rules/rules_test.go`
+- Create: `internal/wolf/rules.go`
+- Test: `internal/wolf/rules_test.go`
 
 - [ ] **Step 1: Write the failing test**
 
-`internal/rules/rules_test.go`:
+`internal/wolf/rules_test.go`:
 ```go
-package rules
+package wolf
 
 import "testing"
 
@@ -118,16 +138,16 @@ func TestProjectRulesNonEmpty(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/rules/`
+Run: `go test ./internal/wolf/`
 Expected: FAIL — `undefined: Rule` / package has no Go files.
 
 - [ ] **Step 3: Write the implementation**
 
-`internal/rules/rules.go`:
+`internal/wolf/rules.go`:
 ```go
-// Package rules holds the built-in table mapping project types to the build
+// This file holds the built-in table mapping project types to the build
 // artifacts they produce, plus the global per-user cache locations.
-package rules
+package wolf
 
 import "path/filepath"
 
@@ -144,6 +164,8 @@ type Rule struct {
 // ProjectRules is the built-in rule table.
 var ProjectRules = []Rule{
 	{Name: "C#/.NET", Markers: []string{"*.csproj", "*.sln", "*.fsproj"}, Artifacts: []string{"bin", "obj"}},
+	{Name: "JavaScript/TS", Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt"}},
+	{Name: "Rust", Markers: []string{"Cargo.toml"}, Artifacts: []string{"target"}},
 	{Name: "Java", Markers: []string{"pom.xml", "build.gradle", "build.gradle.kts"}, Artifacts: []string{"target", "build", ".gradle"}},
 	{Name: "Kotlin", Markers: []string{"build.gradle.kts", "*.kts", "settings.gradle", "settings.gradle.kts"}, Artifacts: []string{"build", ".gradle", "out"}},
 	{Name: "Android", Markers: []string{"settings.gradle", "settings.gradle.kts"}, AlsoRequire: []string{"gradlew"}, Artifacts: []string{"build", ".gradle", "app/build", ".cxx"}},
@@ -205,14 +227,14 @@ var GlobalCacheDefs = []GlobalCacheDef{
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/rules/`
+Run: `go test ./internal/wolf/`
 Expected: PASS (ok).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/rules/
-git commit -m "feat: add rules package with built-in project rules and cache defs"
+git add internal/wolf/rules.go internal/wolf/rules_test.go
+git commit -m "feat: add built-in project rules and cache defs to wolf"
 ```
 
 ---
@@ -368,8 +390,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"it.kluth.buildcleaner/internal/rules"
 )
 
 // Scope distinguishes per-project artifacts from shared global caches.
@@ -423,7 +443,7 @@ func ScanLocal(root string) (cands []Candidate, warnings []error) {
 			}
 		}
 
-		for _, rule := range rules.ProjectRules {
+		for _, rule := range ProjectRules {
 			if !rule.Matches(names) {
 				continue
 			}
@@ -480,7 +500,7 @@ func ScanGlobal() []Candidate {
 		return nil
 	}
 	var out []Candidate
-	for _, def := range rules.GlobalCacheDefs {
+	for _, def := range GlobalCacheDefs {
 		path := ""
 		if def.GoEnvKey != "" {
 			if p := goEnv(def.GoEnvKey); p != "" {
@@ -1933,6 +1953,8 @@ directory** are present together. Built-in rules:
 | Type | Markers | Artifacts |
 |---|---|---|
 | C#/.NET | `*.csproj`, `*.sln`, `*.fsproj` | `bin`, `obj` |
+| JavaScript/TS | `package.json` | `node_modules`, `dist`, `build`, `.next`, `.nuxt` |
+| Rust | `Cargo.toml` | `target` |
 | Java | `pom.xml`, `build.gradle`, `build.gradle.kts` | `target`, `build`, `.gradle` |
 | Kotlin | `build.gradle.kts`, `*.kts`, `settings.gradle(.kts)` | `build`, `.gradle`, `out` |
 | Android | `settings.gradle(.kts)` + `gradlew` | `build`, `.gradle`, `app/build`, `.cxx` |
@@ -1962,12 +1984,14 @@ the TUI). Deletion is permanent (`os.RemoveAll`) — there is no trash.
 
 - [ ] **Step 2: Final verification**
 
-Run:
+Run (compile + tests only — **never execute the binary against the host
+filesystem**; it deletes files):
 ```bash
 go build ./... && go vet ./... && go test ./...
-go build -o /tmp/wolfe . && cd $(mktemp -d) && mkdir -p p/bin && touch p/go.mod && /tmp/wolfe .; echo "exit=$?"
 ```
-Expected: all green; the smoke run prints a dry-run listing `p/bin` with a total and the "Run with --delete" hint, exit `0`, and `p/bin` still exists.
+Expected: all green. **Do not run the built `wolfe` binary on the host.**
+End-to-end behavior (dry-run listing, `--delete`, `--global`, exit codes) is
+verified only inside the Docker container via `./e2e/run.sh` (Task 10).
 
 - [ ] **Step 3: Commit**
 
@@ -1975,6 +1999,257 @@ Expected: all green; the smoke run prints a dry-run listing `p/bin` with a total
 cd /home/andreaskluth/Coding/go/build-cleaner
 git add README.md
 git commit -m "docs: add README"
+```
+
+---
+
+## Task 10: Dockerized end-to-end tests
+
+**Files:**
+- Create: `e2e/doc.go` (untagged, so `go build ./...` always sees a package)
+- Create: `e2e/e2e_test.go` (build tag `e2e`)
+- Create: `e2e/Dockerfile`
+- Create: `e2e/run.sh`
+
+This task builds the real `wolfe` binary and drives it end-to-end inside a
+container, including the destructive `--delete` and `--global` paths, against an
+isolated fake `$HOME`. It runs only with the `e2e` build tag, so normal
+`go test ./...` is unaffected.
+
+- [ ] **Step 1: Create the always-present package doc**
+
+`e2e/doc.go`:
+```go
+// Package e2e contains Dockerized end-to-end tests for the wolfe binary. The
+// tests are guarded by the `e2e` build tag so they do not run during a normal
+// `go test ./...`; run them via e2e/run.sh (docker build + docker run).
+package e2e
+```
+
+- [ ] **Step 2: Write the end-to-end test**
+
+`e2e/e2e_test.go`:
+```go
+//go:build e2e
+
+package e2e
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// buildWolfe compiles the wolfe binary once and returns its path.
+func buildWolfe(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "wolfe")
+	cmd := exec.Command("go", "build", "-o", bin, "it.kluth.buildcleaner")
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("build wolfe: %v", err)
+	}
+	return bin
+}
+
+func writeFile(t *testing.T, path string, size int) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fixtureTree builds a tree of projects with artifacts and returns its root.
+func fixtureTree(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "cs", "App.csproj"), 1)
+	writeFile(t, filepath.Join(root, "cs", "bin", "a.dll"), 2048)
+	writeFile(t, filepath.Join(root, "cs", "obj", "a.o"), 1024)
+	writeFile(t, filepath.Join(root, "js", "package.json"), 1)
+	writeFile(t, filepath.Join(root, "js", "node_modules", "left-pad", "i.js"), 4096)
+	writeFile(t, filepath.Join(root, "rs", "Cargo.toml"), 1)
+	writeFile(t, filepath.Join(root, "rs", "target", "bin"), 8192)
+	writeFile(t, filepath.Join(root, "py", "pyproject.toml"), 1)
+	writeFile(t, filepath.Join(root, "py", "__pycache__", "m.pyc"), 512)
+	return root
+}
+
+func run(t *testing.T, bin string, extraEnv []string, args ...string) (string, int) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), extraEnv...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return string(out), 0
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return string(out), ee.ExitCode()
+	}
+	t.Fatalf("run %v: %v", args, err)
+	return "", -1
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func TestE2EDryRunDeletesNothing(t *testing.T) {
+	bin := buildWolfe(t)
+	root := fixtureTree(t)
+
+	out, code := run(t, bin, nil, root)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "[dry-run] would delete:") {
+		t.Errorf("missing dry-run header:\n%s", out)
+	}
+	if !strings.Contains(out, "node_modules") || !strings.Contains(out, "Total reclaimable:") {
+		t.Errorf("dry-run output missing expected content:\n%s", out)
+	}
+	if !exists(filepath.Join(root, "js", "node_modules")) {
+		t.Error("dry-run must not delete node_modules")
+	}
+}
+
+func TestE2EDeleteRemovesArtifactsKeepsMarkers(t *testing.T) {
+	bin := buildWolfe(t)
+	root := fixtureTree(t)
+
+	out, code := run(t, bin, nil, root, "--delete")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, out)
+	}
+	for _, gone := range []string{
+		filepath.Join(root, "cs", "bin"),
+		filepath.Join(root, "cs", "obj"),
+		filepath.Join(root, "js", "node_modules"),
+		filepath.Join(root, "rs", "target"),
+		filepath.Join(root, "py", "__pycache__"),
+	} {
+		if exists(gone) {
+			t.Errorf("expected %s to be deleted", gone)
+		}
+	}
+	for _, keep := range []string{
+		filepath.Join(root, "cs", "App.csproj"),
+		filepath.Join(root, "js", "package.json"),
+		filepath.Join(root, "rs", "Cargo.toml"),
+	} {
+		if !exists(keep) {
+			t.Errorf("marker %s must be kept", keep)
+		}
+	}
+}
+
+func TestE2EGlobalDeleteInIsolatedHome(t *testing.T) {
+	bin := buildWolfe(t)
+	root := fixtureTree(t)
+
+	home := t.TempDir()
+	gomod := filepath.Join(home, "gomodcache")
+	gocache := filepath.Join(home, "gocache")
+	writeFile(t, filepath.Join(home, ".m2", "repository", "x.jar"), 4096)
+	writeFile(t, filepath.Join(home, ".gradle", "caches", "x.bin"), 4096)
+	writeFile(t, filepath.Join(gomod, "mod", "x.go"), 4096)
+	writeFile(t, filepath.Join(gocache, "ab", "x"), 4096)
+
+	env := []string{
+		"HOME=" + home,
+		"GOMODCACHE=" + gomod,
+		"GOCACHE=" + gocache,
+	}
+	out, code := run(t, bin, env, root, "--global", "--delete")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, out)
+	}
+	for _, gone := range []string{
+		filepath.Join(home, ".m2", "repository"),
+		filepath.Join(home, ".gradle", "caches"),
+		gomod,
+		gocache,
+		filepath.Join(root, "js", "node_modules"),
+	} {
+		if exists(gone) {
+			t.Errorf("expected %s to be deleted under --global --delete", gone)
+		}
+	}
+}
+
+func TestE2EExitCodes(t *testing.T) {
+	bin := buildWolfe(t)
+	root := fixtureTree(t)
+
+	if _, code := run(t, bin, nil, filepath.Join(root, "does-not-exist")); code != 2 {
+		t.Errorf("invalid path: exit = %d, want 2", code)
+	}
+	if _, code := run(t, bin, nil, root, "-i", "--quiet"); code != 2 {
+		t.Errorf("-i + --quiet: exit = %d, want 2", code)
+	}
+	// No TTY is attached to a subprocess pipe, so -i must refuse with exit 2.
+	if _, code := run(t, bin, nil, root, "-i"); code != 2 {
+		t.Errorf("-i without TTY: exit = %d, want 2", code)
+	}
+}
+```
+
+- [ ] **Step 3: Write the Dockerfile**
+
+`e2e/Dockerfile`:
+```dockerfile
+FROM golang:1.26
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+# Build the binary once (fail fast on compile errors), then run the e2e suite.
+RUN go build -o /usr/local/bin/wolfe it.kluth.buildcleaner
+CMD ["go", "test", "-tags", "e2e", "-v", "./e2e/..."]
+```
+
+- [ ] **Step 4: Write the runner script**
+
+`e2e/run.sh`:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build and run the Dockerized end-to-end tests from the repo root.
+cd "$(dirname "$0")/.."
+docker build -f e2e/Dockerfile -t wolf-the-cleaner-e2e .
+docker run --rm wolf-the-cleaner-e2e
+```
+
+Make it executable:
+```bash
+chmod +x e2e/run.sh
+```
+
+- [ ] **Step 5: Verify the package builds without the tag, and run the suite**
+
+Run:
+```bash
+go build ./... && go vet ./...        # e2e/doc.go keeps the package buildable
+go test ./...                          # unaffected: e2e tests excluded (no tag)
+./e2e/run.sh                           # builds image, runs e2e tests in Docker
+```
+Expected: `go build`/`vet`/`test` all pass; `./e2e/run.sh` ends with the e2e
+package's tests all `--- PASS` / `ok`. (Requires Docker installed and running.)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add e2e/
+git commit -m "test: add Dockerized end-to-end tests"
 ```
 
 ---
