@@ -1,5 +1,11 @@
-// Package rules holds the built-in table mapping project types to the build
-// artifacts they produce, plus the global per-user cache locations.
+// Package rules holds the built-in, research-backed table mapping project types
+// to the build artifacts they produce, plus the global per-user cache
+// locations. It is pure data plus a small matcher; the wolf package consumes it
+// and callers never see it.
+//
+// Artifact and cache lists follow the canonical github/gitignore templates for
+// each ecosystem (and the Crystal/Deno docs); see the design spec under
+// docs/superpowers/specs for the per-ecosystem sources.
 package rules
 
 import "path/filepath"
@@ -7,25 +13,33 @@ import "path/filepath"
 // Rule maps a kind of project to the build artifacts it produces. A rule
 // matches a directory when at least one Marker is present in that directory
 // and, if AlsoRequire is non-empty, at least one of those is present too.
+//
+// Markers and Artifacts may be globs (filepath.Match syntax). An Artifact may
+// also contain a path separator (e.g. "app/build") to name a nested directory
+// relative to the project root.
 type Rule struct {
 	Name        string   // informational label, e.g. "C#/.NET"
 	Markers     []string // filenames or globs identifying the project
 	AlsoRequire []string // optional: at least one must also be present
-	Artifacts   []string // child dirs to delete; may be a glob or contain "/"
+	Artifacts   []string // directories to delete (name, glob, or relative path)
 }
 
-// ProjectRules is the built-in rule table.
+// ProjectRules is the built-in rule table. Note there is deliberately no local
+// rule for Go: a Go checkout has no canonical reclaimable directory (binaries
+// are loose files, vendor/ is usually committed) — its reclaimable space lives
+// in the global module and build caches (see GlobalCacheDefs).
 var ProjectRules = []Rule{
-	{Name: "C#/.NET", Markers: []string{"*.csproj", "*.sln", "*.fsproj"}, Artifacts: []string{"bin", "obj"}},
-	{Name: "JavaScript/TS", Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt"}},
+	{Name: "C#/.NET", Markers: []string{"*.csproj", "*.sln", "*.fsproj", "*.vbproj"}, Artifacts: []string{"bin", "obj"}},
+	{Name: "JavaScript/TS", Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt", "out", ".output", ".svelte-kit", ".parcel-cache", ".turbo", ".vite", "coverage", ".cache"}},
+	{Name: "Deno", Markers: []string{"deno.json", "deno.jsonc", "deno.lock"}, Artifacts: []string{"node_modules", "vendor"}},
 	{Name: "Rust", Markers: []string{"Cargo.toml"}, Artifacts: []string{"target"}},
-	{Name: "Java", Markers: []string{"pom.xml", "build.gradle", "build.gradle.kts"}, Artifacts: []string{"target", "build", ".gradle"}},
-	{Name: "Kotlin", Markers: []string{"build.gradle.kts", "*.kts", "settings.gradle", "settings.gradle.kts"}, Artifacts: []string{"build", ".gradle", "out"}},
-	{Name: "Android", Markers: []string{"settings.gradle", "settings.gradle.kts"}, AlsoRequire: []string{"gradlew"}, Artifacts: []string{"build", ".gradle", "app/build", ".cxx"}},
-	{Name: "Flutter/Dart", Markers: []string{"pubspec.yaml"}, Artifacts: []string{"build", ".dart_tool", ".flutter-plugins", ".packages"}},
-	{Name: "Go", Markers: []string{"go.mod"}, Artifacts: []string{"bin"}},
-	{Name: "Ruby", Markers: []string{"Gemfile", "*.gemspec"}, Artifacts: []string{"vendor/bundle", ".bundle"}},
-	{Name: "Python", Markers: []string{"pyproject.toml", "setup.py", "requirements.txt"}, Artifacts: []string{"__pycache__", ".venv", "venv", "*.egg-info", "build", "dist", ".pytest_cache", ".mypy_cache"}},
+	{Name: "Maven", Markers: []string{"pom.xml"}, Artifacts: []string{"target"}},
+	{Name: "Gradle", Markers: []string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}, Artifacts: []string{"build", ".gradle"}},
+	{Name: "Android", Markers: []string{"settings.gradle", "settings.gradle.kts"}, AlsoRequire: []string{"gradlew"}, Artifacts: []string{"build", ".gradle", "app/build", ".cxx", ".externalNativeBuild", "captures"}},
+	{Name: "Flutter/Dart", Markers: []string{"pubspec.yaml"}, Artifacts: []string{"build", ".dart_tool"}},
+	{Name: "Ruby", Markers: []string{"Gemfile", "*.gemspec"}, Artifacts: []string{"vendor/bundle", ".bundle", ".yardoc", "coverage", "pkg"}},
+	{Name: "Python", Markers: []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"}, Artifacts: []string{"__pycache__", ".venv", "venv", "*.egg-info", ".eggs", "build", "dist", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox", "htmlcov", ".hypothesis"}},
+	{Name: "Ruff", Markers: []string{"ruff.toml", ".ruff.toml"}, Artifacts: []string{".ruff_cache"}},
 	{Name: "Crystal", Markers: []string{"shard.yml"}, Artifacts: []string{"lib", ".shards", "bin"}},
 }
 
@@ -54,11 +68,14 @@ func (r Rule) Matches(names []string) bool {
 	return true
 }
 
-// GlobalCacheDef defines a global per-user cache location.
+// GlobalCacheDef defines a global per-user cache location. Its path is resolved
+// in priority order: EnvVar (if set and non-empty), then GoEnvKey (via
+// `go env <key>`), then the user's home directory joined with RelPath.
 type GlobalCacheDef struct {
 	Name     string // informational label, e.g. "Maven"
-	RelPath  string // path relative to the user's home directory
-	GoEnvKey string // if set, resolved via `go env <key>`, RelPath as fallback
+	RelPath  string // path relative to the user's home directory (the fallback)
+	EnvVar   string // if set, prefer the value of this environment variable
+	GoEnvKey string // if set, resolve via `go env <key>`
 }
 
 // GlobalCacheDefs is the built-in list of global cache locations.
@@ -69,10 +86,14 @@ var GlobalCacheDefs = []GlobalCacheDef{
 	{Name: "NuGet", RelPath: ".nuget/packages"},
 	{Name: "npm", RelPath: ".npm"},
 	{Name: "Yarn", RelPath: ".cache/yarn"},
+	{Name: "pnpm", RelPath: ".local/share/pnpm/store"},
 	{Name: "pip", RelPath: ".cache/pip"},
-	{Name: "Cargo", RelPath: ".cargo/registry"},
+	{Name: "Cargo registry", RelPath: ".cargo/registry"},
+	{Name: "Cargo git", RelPath: ".cargo/git"},
 	{Name: "Pub", RelPath: ".pub-cache"},
+	{Name: "Deno", RelPath: ".cache/deno", EnvVar: "DENO_DIR"},
 	{Name: "Gem", RelPath: ".gem"},
+	{Name: "Crystal shards", RelPath: ".cache/shards"},
 	{Name: "Go module cache", RelPath: "go/pkg/mod", GoEnvKey: "GOMODCACHE"},
 	{Name: "Go build cache", RelPath: ".cache/go-build", GoEnvKey: "GOCACHE"},
 }

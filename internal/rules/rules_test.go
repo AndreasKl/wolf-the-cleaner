@@ -30,7 +30,7 @@ func TestRuleMatches(t *testing.T) {
 }
 
 func TestProjectRulesCoverExpectedTypes(t *testing.T) {
-	want := []string{"C#/.NET", "JavaScript/TS", "Rust", "Java", "Kotlin", "Android", "Flutter/Dart", "Go", "Ruby", "Python", "Crystal"}
+	want := []string{"C#/.NET", "JavaScript/TS", "Deno", "Rust", "Maven", "Gradle", "Android", "Flutter/Dart", "Ruby", "Python", "Ruff", "Crystal"}
 	have := map[string]bool{}
 	for _, r := range ProjectRules {
 		have[r.Name] = true
