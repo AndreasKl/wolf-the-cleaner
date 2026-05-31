@@ -1,7 +1,11 @@
 # build-cleaner — Design
 
 **Date:** 2026-05-31
-**Module:** `it.kluth.buildcleaner`
+**Project name:** Wolf the Cleaner — after Winston "The Wolf" Wolfe, the cleaner
+from *Pulp Fiction* ("I solve problems"). Output and `--help` carry a light touch
+of that voice.
+**Command / binary:** `wolfe`
+**Module:** `it.kluth.buildcleaner` (Go import path; unchanged)
 **Language:** Go 1.26
 **Dependencies:** standard library for the core (scanning, sizing, deletion);
 the [Charm](https://github.com/charmbracelet) stack for the optional interactive
@@ -47,7 +51,7 @@ It can optionally also clean **global, per-user package caches** (`~/.m2`,
 ## CLI
 
 ```
-buildcleaner [path] [flags]
+wolfe [path] [flags]
 
   path            Root directory to scan for project artifacts.
                   Defaults to "." (current directory).
@@ -81,11 +85,11 @@ redundant and ignored — deletion is gated by the in-TUI confirmation instead.
 Examples:
 
 ```
-buildcleaner ~/backup              # dry-run, local project artifacts only
-buildcleaner ~/backup --global     # dry-run, local + global caches, one report
-buildcleaner ~/backup --delete     # delete local project artifacts
-buildcleaner ~/backup --global --delete   # delete local + global
-buildcleaner --global              # dry-run of global caches only (path "." has no projects)
+wolfe ~/backup              # dry-run, local project artifacts only
+wolfe ~/backup --global     # dry-run, local + global caches, one report
+wolfe ~/backup --delete     # delete local project artifacts
+wolfe ~/backup --global --delete   # delete local + global
+wolfe --global              # dry-run of global caches only (path "." has no projects)
 ```
 
 `--global` is **additive**: local project artifacts under `path` are always

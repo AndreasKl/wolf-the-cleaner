@@ -866,8 +866,9 @@ Expected: FAIL — `undefined: runCLI`.
 
 `main.go`:
 ```go
-// Command buildcleaner reports or deletes regenerable build artifacts under a
-// directory tree, with an opt-in global-cache mode and an interactive TUI.
+// Command wolfe (Wolf the Cleaner) reports or deletes regenerable build
+// artifacts under a directory tree, with an opt-in global-cache mode and an
+// interactive TUI. Module path: it.kluth.buildcleaner.
 package main
 
 import (
@@ -975,7 +976,7 @@ Expected: PASS.
 
 Run:
 ```bash
-go build -o /tmp/buildcleaner . && /tmp/buildcleaner --help; echo "exit=$?"
+go build -o /tmp/wolfe . && /tmp/wolfe --help; echo "exit=$?"
 ```
 Expected: usage text printed by the `flag` package; exit `2` (flag's default for `-h`/`--help`). This confirms the binary builds and flags are registered.
 
@@ -1644,7 +1645,7 @@ func (m Model) View() string {
 
 func (m Model) selectingView() string {
 	var b strings.Builder
-	header := titleStyle.Render("build-cleaner")
+	header := titleStyle.Render("Wolf the Cleaner")
 	if m.onlyGlobal {
 		header += dimStyle.Render("  [globals only]")
 	}
@@ -1856,14 +1857,16 @@ git commit -m "feat(tui): confirm-gated delete flow with progress and Run entryp
 
 `README.md`:
 ````markdown
-# build-cleaner
+# Wolf the Cleaner
 
-A small Go CLI that walks a tree of programming projects and reports — or
-deletes — regenerable build artifacts (`bin`/`obj`, `node_modules`, `target`,
-`build`, …). Built to **shrink backups**: run it over your `Coding` directory
-(or a backup copy) so regenerable output is excluded and the backup is smaller.
-Everything it removes can be regenerated (dependencies re-download, build output
-recompiles).
+> "I'm Winston Wolfe. I solve problems." — the cleaner from *Pulp Fiction*.
+
+`wolfe` is a small Go CLI that walks a tree of programming projects and reports
+— or deletes — regenerable build artifacts (`bin`/`obj`, `node_modules`,
+`target`, `build`, …). Built to **shrink backups**: run it over your `Coding`
+directory (or a backup copy) so regenerable output is excluded and the backup is
+smaller. Everything it removes can be regenerated (dependencies re-download,
+build output recompiles) — the Wolf cleans up the mess and leaves no trace.
 
 It can optionally also clean shared, per-user package caches (`~/.m2`,
 `~/.gradle/caches`, the Go module cache, …), and offers an interactive TUI for
@@ -1872,15 +1875,17 @@ hands-on cleanup.
 ## Install
 
 ```bash
-go install it.kluth.buildcleaner@latest
-# or, from a clone:
-go build -o buildcleaner .
+git clone git@github.com:AndreasKl/wolf-the-cleaner.git
+cd wolf-the-cleaner
+go build -o wolfe .
+# then put it on your PATH, e.g.
+sudo mv wolfe /usr/local/bin/
 ```
 
 ## Usage
 
 ```
-buildcleaner [path] [flags]
+wolfe [path] [flags]
 ```
 
 - `path` — directory to scan (default `.`).
@@ -1895,11 +1900,11 @@ buildcleaner [path] [flags]
 ### Examples
 
 ```bash
-buildcleaner ~/Coding                 # dry-run: list artifacts + total size
-buildcleaner ~/Coding --delete        # delete project artifacts
-buildcleaner ~/Coding --global        # dry-run incl. global caches
-buildcleaner ~/Coding --global --delete --quiet   # backup script form
-buildcleaner ~/Coding -i              # interactive select-and-delete
+wolfe ~/Coding                 # dry-run: list artifacts + total size
+wolfe ~/Coding --delete        # delete project artifacts
+wolfe ~/Coding --global        # dry-run incl. global caches
+wolfe ~/Coding --global --delete --quiet   # backup script form
+wolfe ~/Coding -i              # interactive select-and-delete
 ```
 
 Dry-run output:
@@ -1960,7 +1965,7 @@ the TUI). Deletion is permanent (`os.RemoveAll`) — there is no trash.
 Run:
 ```bash
 go build ./... && go vet ./... && go test ./...
-go build -o /tmp/buildcleaner . && cd $(mktemp -d) && mkdir -p p/bin && touch p/go.mod && /tmp/buildcleaner .; echo "exit=$?"
+go build -o /tmp/wolfe . && cd $(mktemp -d) && mkdir -p p/bin && touch p/go.mod && /tmp/wolfe .; echo "exit=$?"
 ```
 Expected: all green; the smoke run prints a dry-run listing `p/bin` with a total and the "Run with --delete" hint, exit `0`, and `p/bin` still exists.
 
