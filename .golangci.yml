@@ -1,0 +1,24 @@
+# golangci-lint v2 configuration.
+# Run locally with: golangci-lint run ./...
+version: "2"
+
+linters:
+  # The "standard" set: errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+  settings:
+    errcheck:
+      # Writes to stdout/stderr and best-effort Close on cleanup paths are
+      # intentionally unchecked.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*os.File).Close
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
