@@ -166,3 +166,44 @@ func TestE2EExitCodes(t *testing.T) {
 		t.Errorf("-i without TTY: exit = %d, want 2", code)
 	}
 }
+
+func TestE2EDeleteDefaultMovesToTrash(t *testing.T) {
+	bin := buildWolfe(t)
+	root := fixtureTree(t)
+	xdg := filepath.Join(t.TempDir(), "data")
+
+	out, code := run(t, bin, []string{"XDG_DATA_HOME=" + xdg}, root, "--delete")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, out)
+	}
+	if exists(filepath.Join(root, "js", "node_modules")) {
+		t.Error("--delete should have moved node_modules out of the tree")
+	}
+	entries, err := os.ReadDir(filepath.Join(xdg, "Trash", "files"))
+	if err != nil || len(entries) == 0 {
+		t.Errorf("expected the XDG trash to receive items, got err=%v entries=%d", err, len(entries))
+	}
+}
+
+func TestE2EDeleteNoTrashPermanentlyDeletes(t *testing.T) {
+	bin := buildWolfe(t)
+	root := fixtureTree(t)
+	xdg := filepath.Join(t.TempDir(), "data")
+
+	out, code := run(t, bin, []string{"XDG_DATA_HOME=" + xdg}, root, "--delete", "--no-trash")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, out)
+	}
+	for _, gone := range []string{
+		filepath.Join(root, "js", "node_modules"),
+		filepath.Join(root, "rs", "target"),
+	} {
+		if exists(gone) {
+			t.Errorf("expected %s to be permanently deleted", gone)
+		}
+	}
+	// Permanent deletion must not populate the trash.
+	if entries, err := os.ReadDir(filepath.Join(xdg, "Trash", "files")); err == nil && len(entries) > 0 {
+		t.Errorf("--no-trash must not create trash entries, found %d", len(entries))
+	}
+}
