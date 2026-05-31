@@ -76,10 +76,10 @@ func TestE2EDryRunDeletesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0\n%s", code, out)
 	}
-	if !strings.Contains(out, "[dry-run] would delete:") {
+	if !strings.Contains(out, "[dry-run] would move to trash:") {
 		t.Errorf("missing dry-run header:\n%s", out)
 	}
-	if !strings.Contains(out, "node_modules") || !strings.Contains(out, "Total reclaimable:") {
+	if !strings.Contains(out, "node_modules") || !strings.Contains(out, "Total to trash:") {
 		t.Errorf("dry-run output missing expected content:\n%s", out)
 	}
 	if !exists(filepath.Join(root, "js", "node_modules")) {
