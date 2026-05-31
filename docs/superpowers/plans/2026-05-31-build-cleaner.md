@@ -4,28 +4,40 @@
 
 **Goal:** A Go CLI (`it.kluth.buildcleaner`) that walks a project tree and reports (dry-run by default) or deletes regenerable build artifacts to shrink backups, with an opt-in `--global` cache mode and an optional Bubble Tea select-and-delete TUI.
 
-**Architecture:** A pure-stdlib core split into three packages — `rules` (data + matching), `scanner` (tree walk → candidates), `cleaner` (size/report/delete) — plus a `tui` package that is a thin Bubble Tea view over that core. `main.go` parses flags and dispatches to the non-interactive CLI path or the TUI.
+**Architecture (revised — APoSD):** one **deep core** package `wolf` (`Find` +
+`Measure` + `Delete` + `FormatSize`) hides the rule table, tree walk, sizing,
+cache resolution, and deletion. `rules` is internal data consumed only by
+`wolf`. `main.go` (CLI) and `internal/tui` are thin **presenters** over `wolf`.
 
 **Tech Stack:** Go 1.26, standard library for the core; `github.com/charmbracelet/bubbletea` v1.3.10, `bubbles` v1.0.0, `lipgloss` v1.1.0 for the TUI.
 
-**Spec:** `docs/superpowers/specs/2026-05-31-build-cleaner-design.md`
+**Spec:** `docs/superpowers/specs/2026-05-31-build-cleaner-design.md` — **authoritative.**
+
+> **REVISION NOTE (supersedes original Tasks 3–4).** This plan originally split
+> the core into `scanner` + `cleaner`. It was reworked to a single deep `wolf`
+> module per *A Philosophy of Software Design*, and the rule set was made
+> comprehensive and research-backed (per `github/gitignore`), adding Deno and
+> Ruff and dropping the non-canonical local Go rule. **Task 3 below is now
+> "wolf core"; the old `scanner`/`cleaner` task bodies are obsolete.** Tasks 5–8
+> read `wolf.Find`/`Measure`/`Delete`/`FormatSize` instead of `scanner`/`cleaner`.
+> Where this plan's code disagrees with the spec or the `wolf` interface, the
+> spec wins.
 
 ---
 
 ## File Structure
 
 - `go.mod` — module `it.kluth.buildcleaner`, go 1.26, Charm deps
-- `internal/rules/rules.go` — `Rule`, `ProjectRules`, `Rule.Matches`, `GlobalCacheDef`, `GlobalCacheDefs`
+- `internal/rules/rules.go` — `Rule`, `ProjectRules`, `Rule.Matches`, `GlobalCacheDef`, `GlobalCacheDefs` (data; imported only by `wolf`)
 - `internal/rules/rules_test.go`
-- `internal/scanner/scanner.go` — `Scope`, `Candidate`, `ScanLocal`, `ScanGlobal`
-- `internal/scanner/scanner_test.go`
-- `internal/cleaner/cleaner.go` — `SizedCandidate`, `DirSize`, `HumanSize`, `ReportOpts`, `Report`, `Delete`
-- `internal/cleaner/cleaner_test.go`
+- `internal/wolf/wolf.go` — `Options`, `Target`, `Failure`, `Find`, `Measure`, `Delete`, `FormatSize`
+- `internal/wolf/wolf_test.go`
 - `internal/tui/tui.go` — `Options`, `Model`, messages, `New`, `Init`, `Update`, helpers, `Run`
 - `internal/tui/view.go` — `View`
 - `internal/tui/tui_test.go`
 - `main.go` — flag parsing, dispatch, `runCLI`, `isTTY`
 - `main_test.go` — integration over a temp tree
+- `e2e/` — Dockerized end-to-end tests (`doc.go`, `e2e_test.go` tagged `e2e`, `Dockerfile`, `run.sh`)
 - `README.md`
 
 ---
