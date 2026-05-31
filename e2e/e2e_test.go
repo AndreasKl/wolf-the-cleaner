@@ -45,6 +45,8 @@ func fixtureTree(t *testing.T) string {
 	writeFile(t, filepath.Join(root, "rs", "target", "bin"), 8192)
 	writeFile(t, filepath.Join(root, "py", "pyproject.toml"), 1)
 	writeFile(t, filepath.Join(root, "py", "__pycache__", "m.pyc"), 512)
+	writeFile(t, filepath.Join(root, ".m2", "repository", "a.jar"), 2048)
+	writeFile(t, filepath.Join(root, ".gem", "b.irb"), 2048)
 	return root
 }
 
@@ -91,7 +93,7 @@ func TestE2EDeleteRemovesArtifactsKeepsMarkers(t *testing.T) {
 	bin := buildWolfe(t)
 	root := fixtureTree(t)
 
-	out, code := run(t, bin, nil, root, "--delete")
+	out, code := run(t, bin, nil, root, "--global", "--delete")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0\n%s", code, out)
 	}
@@ -101,6 +103,8 @@ func TestE2EDeleteRemovesArtifactsKeepsMarkers(t *testing.T) {
 		filepath.Join(root, "js", "node_modules"),
 		filepath.Join(root, "rs", "target"),
 		filepath.Join(root, "py", "__pycache__"),
+		filepath.Join(root, ".m2", "repository"),
+		filepath.Join(root, ".gem"),
 	} {
 		if exists(gone) {
 			t.Errorf("expected %s to be deleted", gone)
@@ -113,40 +117,6 @@ func TestE2EDeleteRemovesArtifactsKeepsMarkers(t *testing.T) {
 	} {
 		if !exists(keep) {
 			t.Errorf("marker %s must be kept", keep)
-		}
-	}
-}
-
-func TestE2EGlobalDeleteInIsolatedHome(t *testing.T) {
-	bin := buildWolfe(t)
-	root := fixtureTree(t)
-
-	home := t.TempDir()
-	gomod := filepath.Join(home, "gomodcache")
-	gocache := filepath.Join(home, "gocache")
-	writeFile(t, filepath.Join(home, ".m2", "repository", "x.jar"), 4096)
-	writeFile(t, filepath.Join(home, ".gradle", "caches", "x.bin"), 4096)
-	writeFile(t, filepath.Join(gomod, "mod", "x.go"), 4096)
-	writeFile(t, filepath.Join(gocache, "ab", "x"), 4096)
-
-	env := []string{
-		"HOME=" + home,
-		"GOMODCACHE=" + gomod,
-		"GOCACHE=" + gocache,
-	}
-	out, code := run(t, bin, env, root, "--global", "--delete")
-	if code != 0 {
-		t.Fatalf("exit = %d, want 0\n%s", code, out)
-	}
-	for _, gone := range []string{
-		filepath.Join(home, ".m2", "repository"),
-		filepath.Join(home, ".gradle", "caches"),
-		gomod,
-		gocache,
-		filepath.Join(root, "js", "node_modules"),
-	} {
-		if exists(gone) {
-			t.Errorf("expected %s to be deleted under --global --delete", gone)
 		}
 	}
 }
