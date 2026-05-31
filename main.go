@@ -28,9 +28,14 @@ func run() int {
 	flag.BoolVar(&interactive, "i", false, "launch the interactive TUI (shorthand)")
 	flag.Parse()
 
+	// The stdlib flag package stops at the first non-flag argument, so
+	// `wolfe ~/Coding --delete` (path before flags) would otherwise ignore
+	// --delete. Re-parse the leftovers so flags may appear on either side of the
+	// positional path; the last positional wins.
 	path := "."
-	if args := flag.Args(); len(args) > 0 {
+	for args := flag.Args(); len(args) > 0; args = flag.Args() {
 		path = args[0]
+		flag.CommandLine.Parse(args[1:])
 	}
 
 	if interactive && quiet {
