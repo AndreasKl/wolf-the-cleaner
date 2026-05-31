@@ -38,14 +38,11 @@ type Failure struct {
 // back unmeasured (Size 0); apply Measure to fill in sizes. Find never fails:
 // unreadable subtrees and missing caches are simply skipped.
 func Find(opts Options) []Target {
-	targets := findLocal(opts.Root)
-	if opts.IncludeGlobal {
-		targets = append(targets, findGlobal(opts.Root)...)
-	}
+	targets := findFiles(opts.Root, opts.IncludeGlobal)
 	return targets
 }
 
-func findLocal(root string) []Target {
+func findFiles(root string, includeGlobal bool) []Target {
 	var targets []Target
 	skip := map[string]bool{} // artifact dirs we must not descend into
 	seen := map[string]bool{} // dedup by path
@@ -89,6 +86,20 @@ func findLocal(root string) []Target {
 				}
 			}
 		}
+
+		if includeGlobal {
+			for _, def := range GlobalCacheDefs {
+				for _, ap := range resolveArtifact(path, def.RelPath, dirNames) {
+					if seen[ap] {
+						continue
+					}
+					seen[ap] = true
+					skip[ap] = true
+					targets = append(targets, Target{Path: ap, Kind: def.Name + " (gobal)"})
+				}
+			}
+		}
+
 		return nil
 	})
 	return targets
@@ -125,22 +136,6 @@ func resolveArtifact(dir, art string, dirNames []string) []string {
 func isRealDir(path string) bool {
 	fi, err := os.Lstat(path)
 	return err == nil && fi.IsDir() && fi.Mode()&os.ModeSymlink == 0
-}
-
-// findGlobal returns the package-manager cache directories that exist within
-// root. These are the caches tools normally place under the user's home
-// directory (e.g. .m2/repository, .ivy2/cache, .nuget/packages); here they are
-// resolved relative to the scanned tree — typically a backup of a home
-// directory — so the real home directory is never touched.
-func findGlobal(root string) []Target {
-	var out []Target
-	for _, def := range GlobalCacheDefs {
-		path := filepath.Join(root, def.RelPath)
-		if isRealDir(path) {
-			out = append(out, Target{Path: path, Kind: def.Name + " (global cache)", Global: true})
-		}
-	}
-	return out
 }
 
 // Measure returns the total size of regular files under path (best effort;

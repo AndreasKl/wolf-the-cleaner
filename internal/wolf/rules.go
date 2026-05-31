@@ -29,18 +29,54 @@ type Rule struct {
 // committed) — its reclaimable space lives in the global module and build caches
 // (see GlobalCacheDefs).
 var ProjectRules = []Rule{
-	{Name: "C#/.NET", Markers: []string{"*.csproj", "*.sln", "*.fsproj", "*.vbproj"}, Artifacts: []string{"bin", "obj"}},
-	{Name: "JavaScript/TS", Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt", "out", ".output", ".svelte-kit", ".parcel-cache", ".turbo", ".vite", "coverage", ".cache"}},
-	{Name: "Deno", Markers: []string{"deno.json", "deno.jsonc", "deno.lock"}, Artifacts: []string{"node_modules", "vendor"}},
-	{Name: "Rust", Markers: []string{"Cargo.toml"}, Artifacts: []string{"target"}},
-	{Name: "Maven", Markers: []string{"pom.xml"}, Artifacts: []string{"target"}},
-	{Name: "Gradle", Markers: []string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}, Artifacts: []string{"build", ".gradle"}},
-	{Name: "Android", Markers: []string{"settings.gradle", "settings.gradle.kts"}, AlsoRequire: []string{"gradlew"}, Artifacts: []string{"build", ".gradle", "app/build", ".cxx", ".externalNativeBuild", "captures"}},
-	{Name: "Flutter/Dart", Markers: []string{"pubspec.yaml"}, Artifacts: []string{"build", ".dart_tool"}},
-	{Name: "Ruby", Markers: []string{"Gemfile", "*.gemspec"}, Artifacts: []string{"vendor/bundle", ".bundle", ".yardoc", "coverage", "pkg"}},
-	{Name: "Python", Markers: []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"}, Artifacts: []string{"__pycache__", ".venv", "venv", "*.egg-info", ".eggs", "build", "dist", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox", "htmlcov", ".hypothesis"}},
-	{Name: "Ruff", Markers: []string{"ruff.toml", ".ruff.toml"}, Artifacts: []string{".ruff_cache"}},
-	{Name: "Crystal", Markers: []string{"shard.yml"}, Artifacts: []string{"lib", ".shards", "bin"}},
+	{
+		Name:    "C#/.NET",
+		Markers: []string{"*.csproj", "*.sln", "*.fsproj", "*.vbproj"}, Artifacts: []string{"bin", "obj"},
+	},
+	{
+		Name:    "JavaScript/TS",
+		Markers: []string{"package.json"}, Artifacts: []string{"node_modules", "dist", "build", ".next", ".nuxt", "out", ".output", ".svelte-kit", ".parcel-cache", ".turbo", ".vite", "coverage", ".cache"},
+	},
+	{
+		Name:    "Deno",
+		Markers: []string{"deno.json", "deno.jsonc", "deno.lock"}, Artifacts: []string{"node_modules", "vendor"},
+	},
+	{
+		Name:    "Rust",
+		Markers: []string{"Cargo.toml"}, Artifacts: []string{"target"},
+	},
+	{
+		Name:    "Maven",
+		Markers: []string{"pom.xml"}, Artifacts: []string{"target"},
+	},
+	{
+		Name:    "Gradle",
+		Markers: []string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}, Artifacts: []string{"build", ".gradle"},
+	},
+	{
+		Name:    "Android",
+		Markers: []string{"settings.gradle", "settings.gradle.kts"}, AlsoRequire: []string{"gradlew"}, Artifacts: []string{"build", ".gradle", "app/build", ".cxx", ".externalNativeBuild", "captures"},
+	},
+	{
+		Name:    "Flutter/Dart",
+		Markers: []string{"pubspec.yaml"}, Artifacts: []string{"build", ".dart_tool"},
+	},
+	{
+		Name:    "Ruby",
+		Markers: []string{"Gemfile", "*.gemspec"}, Artifacts: []string{"vendor/bundle", ".bundle", ".yardoc", "coverage", "pkg"},
+	},
+	{
+		Name:    "Python",
+		Markers: []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"}, Artifacts: []string{"__pycache__", ".venv", "venv", "*.egg-info", ".eggs", "build", "dist", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox", "htmlcov", ".hypothesis"},
+	},
+	{
+		Name:    "Ruff",
+		Markers: []string{"ruff.toml", ".ruff.toml"}, Artifacts: []string{".ruff_cache"},
+	},
+	{
+		Name:    "Crystal",
+		Markers: []string{"shard.yml"}, Artifacts: []string{"lib", ".shards", "bin"},
+	},
 }
 
 // anyMatch reports whether any name matches any of the patterns (filepath.Match
