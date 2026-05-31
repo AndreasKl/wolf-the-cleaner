@@ -22,6 +22,13 @@ cache resolution, and deletion. `rules` is internal data consumed only by
 > read `wolf.Find`/`Measure`/`Delete`/`FormatSize` instead of `scanner`/`cleaner`.
 > Where this plan's code disagrees with the spec or the `wolf` interface, the
 > spec wins.
+>
+> **REVISION NOTE 2 (trash + tooling).** Deletion now defaults to **moving to
+> the XDG trash** (`wolf.Delete(targets, wolf.Disposal)` with `ToTrash` /
+> `Permanent`, implemented in `internal/wolf/trash.go`); a `--no-trash` flag
+> selects permanent `os.RemoveAll`. The CLI/TUI wording and `tui.Options.Permanent`
+> follow suit. The repo also adds `.golangci.yml`, a `.github/workflows/ci.yml`
+> (gofmt + vet + test + golangci-lint), and the codebase is `gofmt`-clean.
 
 ---
 

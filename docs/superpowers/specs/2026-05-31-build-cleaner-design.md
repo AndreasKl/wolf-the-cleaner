@@ -41,7 +41,9 @@ It can optionally also clean **global, per-user package caches** (`~/.m2`,
 ## Non-goals (v1)
 
 - No user config file / rule overrides — the ruleset is built-in only.
-- No trash/recycle bin — deletion is permanent (`os.RemoveAll`).
+- Trash support is **Linux-only** (FreeDesktop.org XDG home trash). No macOS/
+  Windows recycle-bin integration; `--no-trash` (permanent `os.RemoveAll`) works
+  on any platform.
 - No following of symlinks.
 - No concurrency in the **non-interactive CLI path** — it scans and sizes
   sequentially (simple, deterministic output). The TUI path does run scanning
@@ -61,9 +63,13 @@ wolfe [path] [flags]
                   same report and the same delete pass. Opt-in, because
                   these caches are shared across all of the user's projects.
 
-  --delete        Actually remove the listed directories. Without this flag
-                  the run is a dry-run (default) and deletes nothing.
-                  (Ignored in --interactive mode, which confirms in the TUI.)
+  --delete        Actually dispose of the listed directories. Without this flag
+                  the run is a dry-run (default) and changes nothing. Default
+                  disposal moves directories to the trash (recoverable).
+
+  --no-trash      Permanently delete (os.RemoveAll) instead of trashing. Frees
+                  disk space immediately; irreversible. A mode modifier: alone
+                  (no --delete) it only changes what the dry-run previews.
 
   --interactive   Launch the interactive TUI (Bubble Tea): scan, then pick
                   which candidates to delete from a checklist and delete them
@@ -171,10 +177,17 @@ func Find(opts Options) []Target
 // Target.Size — eagerly (CLI) or lazily/streamed (TUI).
 func Measure(path string) int64
 
-// Delete removes each target with os.RemoveAll, returning bytes reclaimed
-// (summed from the targets' Size) and any directories it could not remove.
-// Deleting an absent directory is a no-op, not a failure.
-func Delete(targets []Target) (reclaimed int64, failed []Failure)
+// Disposal selects how Delete removes a target: ToTrash (default; move to the
+// XDG home trash, recoverable) or Permanent (os.RemoveAll, frees space at once).
+type Disposal int
+const ( ToTrash Disposal = iota; Permanent )
+
+// Delete disposes of each target per how, returning the total Size processed and
+// any it could not dispose of. ToTrash follows the FreeDesktop.org Trash spec
+// (move into ~/.local/share/Trash/files with a matching info/<name>.trashinfo;
+// collision-safe names; cross-device copy+remove fallback). With Permanent,
+// removing an absent directory is a no-op, not a failure.
+func Delete(targets []Target, how Disposal) (processed int64, failed []Failure)
 
 // FormatSize renders a byte count with binary (1024-based) IEC units —
 // B, KiB, MiB, GiB, TiB — to one decimal place (e.g. "4.2 GiB"). Shared by both
