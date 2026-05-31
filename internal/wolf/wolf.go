@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"it.kluth.buildcleaner/internal/rules"
@@ -117,10 +118,8 @@ func resolveArtifact(dir, art string, dirNames []string) []string {
 		}
 		return out
 	}
-	for _, n := range dirNames {
-		if n == art {
-			return []string{filepath.Join(dir, art)}
-		}
+	if slices.Contains(dirNames, art) {
+		return []string{filepath.Join(dir, art)}
 	}
 	return nil
 }
@@ -188,18 +187,36 @@ func Measure(path string) int64 {
 	return total
 }
 
-// Delete removes each target with os.RemoveAll, returning the bytes reclaimed
-// (summed from each target's Size) and any directories it could not remove.
-// Removing an absent directory is a no-op, not a failure.
-func Delete(targets []Target) (reclaimed int64, failed []Failure) {
+// Disposal selects how Delete gets rid of a target.
+type Disposal int
+
+const (
+	// ToTrash moves the directory to the user's trash (recoverable). This is
+	// the default; note it does not free disk space until the trash is emptied.
+	ToTrash Disposal = iota
+	// Permanent removes the directory outright with os.RemoveAll, freeing space
+	// immediately and irreversibly.
+	Permanent
+)
+
+// Delete disposes of each target according to how, returning the total Size of
+// the targets it processed and any it could not dispose of. With Permanent,
+// removing an absent directory is a no-op, not a failure.
+func Delete(targets []Target, how Disposal) (processed int64, failed []Failure) {
 	for _, t := range targets {
-		if err := os.RemoveAll(t.Path); err != nil {
+		var err error
+		if how == ToTrash {
+			err = moveToTrash(t.Path)
+		} else {
+			err = os.RemoveAll(t.Path)
+		}
+		if err != nil {
 			failed = append(failed, Failure{Path: t.Path, Err: err})
 			continue
 		}
-		reclaimed += t.Size
+		processed += t.Size
 	}
-	return reclaimed, failed
+	return processed, failed
 }
 
 // FormatSize renders a byte count with binary (1024-based) IEC units.

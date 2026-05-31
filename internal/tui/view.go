@@ -24,10 +24,16 @@ func (m Model) View() string {
 	case stateScanning:
 		return fmt.Sprintf("\n  %s scanning %s ...\n", m.spinner.View(), m.opts.Root)
 	case stateConfirm:
+		verb := "Move"
+		suffix := " to the trash"
+		if m.opts.Permanent {
+			verb = "Permanently delete"
+			suffix = ""
+		}
 		return fmt.Sprintf(
-			"\n  %s\n\n  Delete %d directories (%s)?  [y] yes  [n] back\n",
-			titleStyle.Render("Confirm deletion"),
-			m.selectedCount(), wolf.FormatSize(m.selectedSize()),
+			"\n  %s\n\n  %s %d directories (%s)%s?  [y] yes  [n] back\n",
+			titleStyle.Render("Confirm"),
+			verb, m.selectedCount(), wolf.FormatSize(m.selectedSize()), suffix,
 		)
 	case stateDeleting:
 		done := m.delIndex
@@ -36,11 +42,19 @@ func (m Model) View() string {
 		if total > 0 {
 			pct = float64(done) / float64(total)
 		}
-		return fmt.Sprintf("\n  Deleting %d/%d\n\n  %s\n", done, total, m.prog.ViewAs(pct))
+		action := "Trashing"
+		if m.opts.Permanent {
+			action = "Deleting"
+		}
+		return fmt.Sprintf("\n  %s %d/%d\n\n  %s\n", action, done, total, m.prog.ViewAs(pct))
 	case stateDone:
 		var b strings.Builder
 		fmt.Fprintf(&b, "\n  %s\n\n", titleStyle.Render("Done"))
-		fmt.Fprintf(&b, "  Freed: %s across %d directories\n", wolf.FormatSize(m.freed), len(m.delQueue)-len(m.failures))
+		verb := "Moved to trash"
+		if m.opts.Permanent {
+			verb = "Freed"
+		}
+		fmt.Fprintf(&b, "  %s: %s across %d directories\n", verb, wolf.FormatSize(m.freed), len(m.delQueue)-len(m.failures))
 		for _, f := range m.failures {
 			fmt.Fprintf(&b, "  %s %s: %v\n", failureStyle.Render("failed:"), f.Path, f.Err)
 		}

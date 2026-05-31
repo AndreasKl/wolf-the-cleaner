@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -139,22 +140,69 @@ func TestMeasure(t *testing.T) {
 	}
 }
 
-func TestDeleteRemovesAndTreatsAbsentAsNoOp(t *testing.T) {
+func TestDeletePermanentRemovesAndTreatsAbsentAsNoOp(t *testing.T) {
 	d := t.TempDir()
 	victim := filepath.Join(d, "bin")
 	mkdir(t, victim)
-	reclaimed, failed := Delete([]Target{{Path: victim, Size: 42}})
+	processed, failed := Delete([]Target{{Path: victim, Size: 42}}, Permanent)
 	if len(failed) != 0 {
 		t.Fatalf("unexpected failures %v", failed)
 	}
-	if reclaimed != 42 {
-		t.Errorf("reclaimed = %d, want 42", reclaimed)
+	if processed != 42 {
+		t.Errorf("processed = %d, want 42", processed)
 	}
 	if _, err := os.Stat(victim); !os.IsNotExist(err) {
 		t.Error("victim should be gone")
 	}
-	if _, failed := Delete([]Target{{Path: filepath.Join(d, "nope"), Size: 1}}); len(failed) != 0 {
-		t.Errorf("deleting an absent dir must be a no-op, got %v", failed)
+	if _, failed := Delete([]Target{{Path: filepath.Join(d, "nope"), Size: 1}}, Permanent); len(failed) != 0 {
+		t.Errorf("permanently deleting an absent dir must be a no-op, got %v", failed)
+	}
+}
+
+func TestDeleteToTrashMovesAndRecordsTrashinfo(t *testing.T) {
+	// Sandbox the trash so the test never touches the real ~/.local/share/Trash.
+	xdg := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", xdg)
+
+	d := t.TempDir()
+	victim := filepath.Join(d, "node_modules")
+	mkdir(t, victim)
+	if err := os.WriteFile(filepath.Join(victim, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	processed, failed := Delete([]Target{{Path: victim, Size: 99}}, ToTrash)
+	if len(failed) != 0 {
+		t.Fatalf("unexpected failures %v", failed)
+	}
+	if processed != 99 {
+		t.Errorf("processed = %d, want 99", processed)
+	}
+	if _, err := os.Stat(victim); !os.IsNotExist(err) {
+		t.Error("victim should have left its original location")
+	}
+	// It should now live under the trash files/ dir, with a .trashinfo recording
+	// the original path.
+	if _, err := os.Stat(filepath.Join(xdg, "Trash", "files", "node_modules")); err != nil {
+		t.Errorf("expected node_modules under trash files/: %v", err)
+	}
+	infoBytes, err := os.ReadFile(filepath.Join(xdg, "Trash", "info", "node_modules.trashinfo"))
+	if err != nil {
+		t.Fatalf("expected a .trashinfo: %v", err)
+	}
+	info := string(infoBytes)
+	if !strings.HasPrefix(info, "[Trash Info]") || !strings.Contains(info, "Path=") || !strings.Contains(info, "DeletionDate=") {
+		t.Errorf("malformed trashinfo:\n%s", info)
+	}
+
+	// A second trash of the same basename must not collide.
+	victim2 := filepath.Join(t.TempDir(), "node_modules")
+	mkdir(t, victim2)
+	if _, failed := Delete([]Target{{Path: victim2, Size: 1}}, ToTrash); len(failed) != 0 {
+		t.Fatalf("second trash failed: %v", failed)
+	}
+	if _, err := os.Stat(filepath.Join(xdg, "Trash", "files", "node_modules.1")); err != nil {
+		t.Errorf("expected collision-suffixed node_modules.1 in trash: %v", err)
 	}
 }
 

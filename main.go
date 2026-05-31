@@ -19,9 +19,10 @@ func main() {
 }
 
 func run() int {
-	var global, del, quiet, interactive bool
+	var global, del, quiet, interactive, noTrash bool
 	flag.BoolVar(&global, "global", false, "also include global per-user caches (~/.m2, ~/.gradle, ...)")
-	flag.BoolVar(&del, "delete", false, "actually delete the listed directories (default: dry-run)")
+	flag.BoolVar(&del, "delete", false, "actually dispose of the listed directories (default: dry-run)")
+	flag.BoolVar(&noTrash, "no-trash", false, "permanently delete instead of moving to the trash")
 	flag.BoolVar(&quiet, "quiet", false, "print only the totals")
 	flag.BoolVar(&interactive, "interactive", false, "launch the interactive TUI")
 	flag.BoolVar(&interactive, "i", false, "launch the interactive TUI (shorthand)")
@@ -45,8 +46,13 @@ func run() int {
 		return 2
 	}
 
+	how := wolf.ToTrash
+	if noTrash {
+		how = wolf.Permanent
+	}
+
 	if interactive {
-		failed, err := tui.Run(tui.Options{Root: path, Global: global})
+		failed, err := tui.Run(tui.Options{Root: path, Global: global, Permanent: noTrash})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -57,21 +63,25 @@ func run() int {
 		return 0
 	}
 
-	return runCLI(path, global, del, quiet)
+	return runCLI(path, global, del, quiet, how)
 }
 
-func runCLI(path string, global, del, quiet bool) int {
+func runCLI(path string, global, del, quiet bool, how wolf.Disposal) int {
 	targets := wolf.Find(wolf.Options{Root: path, IncludeGlobal: global})
 	for i := range targets {
 		targets[i].Size = wolf.Measure(targets[i].Path)
 	}
 
-	report(os.Stdout, targets, !del, quiet)
+	report(os.Stdout, targets, !del, quiet, how)
 
 	if del {
-		reclaimed, failed := wolf.Delete(targets)
-		fmt.Fprintf(os.Stdout, "Freed: %s across %d directories\n",
-			wolf.FormatSize(reclaimed), len(targets)-len(failed))
+		processed, failed := wolf.Delete(targets, how)
+		verb := "Moved to trash"
+		if how == wolf.Permanent {
+			verb = "Freed"
+		}
+		fmt.Fprintf(os.Stdout, "%s: %s across %d directories\n",
+			verb, wolf.FormatSize(processed), len(targets)-len(failed))
 		for _, f := range failed {
 			fmt.Fprintf(os.Stderr, "failed: %s: %v\n", f.Path, f.Err)
 		}
@@ -84,8 +94,9 @@ func runCLI(path string, global, del, quiet bool) int {
 
 // report renders the target listing and totals — CLI presentation, kept out of
 // wolf. Targets are sorted largest-first; the total shows a local/global
-// breakdown when both are present. quiet prints only the totals line.
-func report(w io.Writer, targets []wolf.Target, dryRun, quiet bool) {
+// breakdown when both are present. quiet prints only the totals line. The
+// wording reflects the disposal mode (trash vs permanent).
+func report(w io.Writer, targets []wolf.Target, dryRun, quiet bool, how wolf.Disposal) {
 	sort.SliceStable(targets, func(i, j int) bool { return targets[i].Size > targets[j].Size })
 
 	var total, local, global int64
@@ -98,11 +109,17 @@ func report(w io.Writer, targets []wolf.Target, dryRun, quiet bool) {
 		}
 	}
 
+	permanent := how == wolf.Permanent
 	if !quiet {
-		if dryRun {
-			fmt.Fprintln(w, "[dry-run] would delete:")
-		} else {
-			fmt.Fprintln(w, "deleting:")
+		switch {
+		case dryRun && permanent:
+			fmt.Fprintln(w, "[dry-run] would permanently delete:")
+		case dryRun:
+			fmt.Fprintln(w, "[dry-run] would move to trash:")
+		case permanent:
+			fmt.Fprintln(w, "deleting permanently:")
+		default:
+			fmt.Fprintln(w, "moving to trash:")
 		}
 		for _, t := range targets {
 			fmt.Fprintf(w, "  %10s   %s   (%s)\n", wolf.FormatSize(t.Size), t.Path, t.Kind)
@@ -110,14 +127,22 @@ func report(w io.Writer, targets []wolf.Target, dryRun, quiet bool) {
 		fmt.Fprintln(w, "----")
 	}
 
-	line := fmt.Sprintf("Total reclaimable: %s across %d directories", wolf.FormatSize(total), len(targets))
+	noun := "reclaimable"
+	if !permanent {
+		noun = "to trash" // not freed from disk until the trash is emptied
+	}
+	line := fmt.Sprintf("Total %s: %s across %d directories", noun, wolf.FormatSize(total), len(targets))
 	if local > 0 && global > 0 {
 		line += fmt.Sprintf("  (local: %s / global: %s)", wolf.FormatSize(local), wolf.FormatSize(global))
 	}
 	fmt.Fprintln(w, line)
 
 	if dryRun && !quiet {
-		fmt.Fprintln(w, "Run with --delete to remove them.")
+		if permanent {
+			fmt.Fprintln(w, "Run with --delete --no-trash to permanently delete them.")
+		} else {
+			fmt.Fprintln(w, "Run with --delete to move them to the trash (recoverable; use --no-trash to delete for good).")
+		}
 	}
 }
 

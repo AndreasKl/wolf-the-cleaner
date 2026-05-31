@@ -17,8 +17,9 @@ import (
 
 // Options configures an interactive run.
 type Options struct {
-	Root   string
-	Global bool
+	Root      string
+	Global    bool
+	Permanent bool // delete permanently instead of moving to the trash
 }
 
 type state int
@@ -102,7 +103,11 @@ func New(opts Options) Model {
 		findFn:  func() []wolf.Target { return wolf.Find(wolf.Options{Root: opts.Root, IncludeGlobal: opts.Global}) },
 		sizeFn:  wolf.Measure,
 		deleteFn: func(t wolf.Target) error {
-			_, failed := wolf.Delete([]wolf.Target{t})
+			how := wolf.ToTrash
+			if opts.Permanent {
+				how = wolf.Permanent
+			}
+			_, failed := wolf.Delete([]wolf.Target{t}, how)
 			if len(failed) > 0 {
 				return failed[0].Err
 			}
