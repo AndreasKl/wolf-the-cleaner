@@ -105,9 +105,9 @@ func (r Rule) Matches(names []string) bool {
 }
 
 // GlobalCacheDef defines a package-manager cache location by its conventional
-// path relative to a home directory. findGlobal joins RelPath onto the scanned
-// tree (e.g. a backup of a home directory), so caches are matched within that
-// tree rather than in the real home directory.
+// path relative to a home directory. findFiles joins RelPath onto each directory
+// it walks within the scanned tree (e.g. a backup of a home directory), so
+// caches are matched within that tree rather than in the real home directory.
 type GlobalCacheDef struct {
 	Name    string // informational label, e.g. "Maven"
 	RelPath string // path relative to the (scanned) home directory

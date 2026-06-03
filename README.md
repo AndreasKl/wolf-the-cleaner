@@ -114,11 +114,15 @@ ecosystem (and the Crystal/Deno docs).
 > reclaimable directory (binaries are loose files, `vendor/` is usually
 > committed). Go's reclaimable space is its global module/build caches below.
 
-Global caches (with `--global`): Maven, Ivy, Gradle, NuGet, npm, Yarn, pnpm,
-pip, Cargo (registry + git), Pub, Deno (`$DENO_DIR`), Gem, Crystal shards, and
-the Go module/build caches (`go env GOMODCACHE`/`GOCACHE`). Each is resolved via
-a relevant environment variable, then `go env`, then a `$HOME` fallback, and is
-included only if it actually exists.
+Global caches (with `--global`): Maven (`.m2/repository`), Ivy (`.ivy2/cache`),
+Gradle (`.gradle/caches`), NuGet (`.nuget/packages`), npm (`.npm`), Yarn
+(`.cache/yarn`), pnpm (`.local/share/pnpm/store`), pip (`.cache/pip`), Cargo
+(`.cargo/registry`, `.cargo/git`), Pub (`.pub-cache`), Deno (`.cache/deno`), Gem
+(`.gem`), Crystal shards (`.cache/shards`), and the Go module/build caches
+(`go/pkg/mod`, `.cache/go-build`). Each is identified by its conventional path
+relative to a home directory and is looked for **inside the scanned tree** — so
+pointing `wolfe` at a backup of your home directory finds the backed-up caches.
+A cache is included only if it actually exists.
 
 ## Exit codes
 
