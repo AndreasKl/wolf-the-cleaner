@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,48 +19,84 @@ func main() {
 	os.Exit(run())
 }
 
-func run() int {
-	var global, del, quiet, interactive, noTrash bool
-	flag.BoolVar(&global, "global", false, "also include global per-user caches (~/.m2, ~/.gradle, ...)")
-	flag.BoolVar(&del, "delete", false, "actually dispose of the listed directories (default: dry-run)")
-	flag.BoolVar(&noTrash, "no-trash", false, "permanently delete instead of moving to the trash")
-	flag.BoolVar(&quiet, "quiet", false, "print only the totals")
-	flag.BoolVar(&interactive, "interactive", false, "launch the interactive TUI")
-	flag.BoolVar(&interactive, "i", false, "launch the interactive TUI (shorthand)")
-	flag.Parse()
+// options is the parsed command line: the directory to scan plus the mode flags.
+type options struct {
+	path        string
+	global      bool
+	del         bool
+	quiet       bool
+	interactive bool
+	noTrash     bool
+}
 
-	// The stdlib flag package stops at the first non-flag argument, so
-	// `wolfe ~/Coding --delete` (path before flags) would otherwise ignore
-	// --delete. Re-parse the leftovers so flags may appear on either side of the
-	// positional path; the last positional wins.
-	path := "."
-	for args := flag.Args(); len(args) > 0; args = flag.Args() {
-		path = args[0]
-		// flag.CommandLine uses ExitOnError, so a parse error exits the process;
-		// the returned error is therefore always nil here.
-		_ = flag.CommandLine.Parse(args[1:])
+// errInteractiveQuiet reports the one combination of flags that cannot coexist.
+var errInteractiveQuiet = errors.New("--interactive and --quiet are mutually exclusive")
+
+// parseArgs parses a wolfe command line into options. It uses a private FlagSet
+// (not the global flag.CommandLine) so it returns errors instead of exiting,
+// which keeps it unit-testable; flag usage/error text is written to out.
+//
+// The stdlib flag package stops at the first non-flag argument, so
+// `wolfe ~/Coding --delete` (path before flags) would otherwise ignore --delete.
+// The re-parse loop consumes the leftovers, so flags may appear on either side
+// of the positional path; the last positional wins.
+func parseArgs(args []string, out io.Writer) (options, error) {
+	opts := options{path: "."}
+	fs := flag.NewFlagSet("wolfe", flag.ContinueOnError)
+	fs.SetOutput(out)
+	fs.BoolVar(&opts.global, "global", false, "also include global per-user caches (~/.m2, ~/.gradle, ...)")
+	fs.BoolVar(&opts.del, "delete", false, "actually dispose of the listed directories (default: dry-run)")
+	fs.BoolVar(&opts.noTrash, "no-trash", false, "permanently delete instead of moving to the trash")
+	fs.BoolVar(&opts.quiet, "quiet", false, "print only the totals")
+	fs.BoolVar(&opts.interactive, "interactive", false, "launch the interactive TUI")
+	fs.BoolVar(&opts.interactive, "i", false, "launch the interactive TUI (shorthand)")
+
+	if err := fs.Parse(args); err != nil {
+		return opts, err
+	}
+	for rest := fs.Args(); len(rest) > 0; rest = fs.Args() {
+		opts.path = rest[0]
+		if err := fs.Parse(rest[1:]); err != nil {
+			return opts, err
+		}
 	}
 
-	if interactive && quiet {
-		fmt.Fprintln(os.Stderr, "error: --interactive and --quiet are mutually exclusive")
+	if opts.interactive && opts.quiet {
+		return opts, errInteractiveQuiet
+	}
+	return opts, nil
+}
+
+func run() int {
+	opts, err := parseArgs(os.Args[1:], os.Stderr)
+	if err != nil {
+		// flag.ErrHelp and flag parse errors have already printed usage to
+		// stderr; our own validation errors have not.
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		if errors.Is(err, errInteractiveQuiet) {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
 		return 2
 	}
-	if interactive && !isTTY(os.Stdout) {
+
+	if opts.interactive && !isTTY(os.Stdout) {
 		fmt.Fprintln(os.Stderr, "error: --interactive requires a terminal; drop -i for non-interactive output")
 		return 2
 	}
-	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
-		fmt.Fprintf(os.Stderr, "error: %q is not a directory\n", path)
+	if fi, err := os.Stat(opts.path); err != nil || !fi.IsDir() {
+		fmt.Fprintf(os.Stderr, "error: %q is not a directory\n", opts.path)
 		return 2
 	}
 
 	how := wolf.ToTrash
-	if noTrash {
+	if opts.noTrash {
 		how = wolf.Permanent
 	}
 
-	if interactive {
-		failed, err := tui.Run(tui.Options{Root: path, Global: global, Permanent: noTrash})
+	if opts.interactive {
+		failed, err := tui.Run(tui.Options{Root: opts.path, Global: opts.global, Permanent: opts.noTrash})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -70,7 +107,7 @@ func run() int {
 		return 0
 	}
 
-	return runCLI(path, global, del, quiet, how)
+	return runCLI(opts.path, opts.global, opts.del, opts.quiet, how)
 }
 
 func runCLI(path string, global, del, quiet bool, how wolf.Disposal) int {

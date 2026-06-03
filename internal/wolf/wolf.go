@@ -22,7 +22,7 @@ type Options struct {
 // Target is one directory that can be reclaimed.
 type Target struct {
 	Path   string // absolute or root-relative path of the directory
-	Kind   string // informational label, e.g. "JavaScript/TS" or "Maven (global cache)"
+	Kind   string // informational label, e.g. "JavaScript/TS" or "Maven (gobal)"
 	Global bool   // true for a shared per-user cache, false for a project artifact
 	Size   int64  // measured size in bytes; 0 until Measure has been applied
 }
@@ -95,7 +95,7 @@ func findFiles(root string, includeGlobal bool) []Target {
 					}
 					seen[ap] = true
 					skip[ap] = true
-					targets = append(targets, Target{Path: ap, Kind: def.Name + " (gobal)"})
+					targets = append(targets, Target{Path: ap, Kind: def.Name + " (global cache)"})
 				}
 			}
 		}

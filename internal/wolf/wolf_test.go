@@ -119,7 +119,8 @@ func TestFindGlobalUsesScannedRoot(t *testing.T) {
 	t.Setenv("HOME", home)
 	mkdir(t, filepath.Join(home, ".ivy2", "cache"))
 
-	got := pathsOf(Find(Options{Root: root, IncludeGlobal: true}))
+	targets := Find(Options{Root: root, IncludeGlobal: true})
+	got := pathsOf(targets)
 	if !got[filepath.Join(root, ".m2", "repository")] {
 		t.Error("expected <root>/.m2/repository global cache")
 	}
@@ -129,6 +130,21 @@ func TestFindGlobalUsesScannedRoot(t *testing.T) {
 	if got[filepath.Join(home, ".ivy2", "cache")] {
 		t.Error("home-directory caches must not be discovered")
 	}
+
+	// The Kind label is user-visible; guard against typos like "(gobal)".
+	if kind := kindOf(targets, filepath.Join(root, ".m2", "repository")); kind != "Maven (global cache)" {
+		t.Errorf("Maven global cache Kind = %q, want %q", kind, "Maven (global cache)")
+	}
+}
+
+// kindOf returns the Kind of the target with the given path, or "" if absent.
+func kindOf(targets []Target, path string) string {
+	for _, t := range targets {
+		if t.Path == path {
+			return t.Kind
+		}
+	}
+	return ""
 }
 
 func TestMeasure(t *testing.T) {
