@@ -58,7 +58,7 @@ func (m Model) View() string {
 		for _, f := range m.failures {
 			fmt.Fprintf(&b, "  %s %s: %v\n", failureStyle.Render("failed:"), f.Path, f.Err)
 		}
-		fmt.Fprint(&b, "\n  [q] quit\n")
+		fmt.Fprint(&b, "\n  "+dimStyle.Render("[r/enter] rescan  [q] quit")+"\n")
 		return b.String()
 	default:
 		return m.selectingView()
@@ -105,6 +105,6 @@ func (m Model) selectingView() string {
 		accentStyle.Render(fmt.Sprintf("Selected: %s / %d dirs", wolf.FormatSize(m.selectedSize()), m.selectedCount())),
 		dimStyle.Render(fmt.Sprintf("%d–%d of %d", lo, end, len(m.view))),
 	)
-	fmt.Fprint(&b, dimStyle.Render("  [space] toggle  [a] all  [g] globals  [/] filter  [enter] delete  [q] quit")+"\n")
+	fmt.Fprint(&b, dimStyle.Render("  [space] toggle  [a] all  [g] globals  [/] filter  [r] rescan  [enter] delete  [q] quit")+"\n")
 	return b.String()
 }

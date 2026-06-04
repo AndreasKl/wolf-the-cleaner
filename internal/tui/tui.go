@@ -91,13 +91,11 @@ func New(opts Options) Model {
 	sp.Spinner = spinner.Dot
 	ti := textinput.New()
 	ti.Placeholder = "filter by path or type"
-	return Model{
+	m := Model{
 		opts:    opts,
-		state:   stateScanning,
 		spinner: sp,
 		filter:  ti,
 		prog:    progress.New(progress.WithDefaultGradient()),
-		byPath:  map[string]*item{},
 		height:  20,
 		width:   80,
 		findFn:  func() []wolf.Target { return wolf.Find(wolf.Options{Root: opts.Root, IncludeGlobal: opts.Global}) },
@@ -114,6 +112,35 @@ func New(opts Options) Model {
 			return nil
 		},
 	}
+	m.resetForScan() // initialize per-scan state (state, byPath, ...) once
+	return m
+}
+
+// resetForScan clears the per-scan state so a fresh scan can repopulate the
+// model, returning it to stateScanning. View preferences (the filter text and
+// the onlyGlobal toggle) and the injected functions/opts are preserved.
+func (m *Model) resetForScan() {
+	m.items = nil
+	m.byPath = map[string]*item{}
+	m.view = nil
+	m.allSized = false
+	m.cursor = 0
+	m.offset = 0
+	m.delQueue = nil
+	m.delIndex = 0
+	m.freed = 0
+	m.failures = nil
+	m.sizeCh = nil
+	m.filtering = false
+	m.filter.Blur()
+	m.state = stateScanning
+}
+
+// rescan discards the current results and kicks off a fresh scan, returning to
+// the scanning -> selecting flow (preserving the filter and globals toggle).
+func (m Model) rescan() (tea.Model, tea.Cmd) {
+	m.resetForScan()
+	return m, tea.Batch(m.spinner.Tick, findCmd(m.findFn))
 }
 
 // Init starts the spinner and the background scan.
@@ -220,7 +247,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case stateDone:
 		switch msg.String() {
-		case "q", "enter", "esc", "ctrl+c":
+		case "r", "enter":
+			return m.rescan()
+		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
 		}
 		return m, nil
@@ -270,6 +299,8 @@ func (m Model) handleSelectingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.onlyGlobal = !m.onlyGlobal
 		m.cursor = 0
 		m.rebuildView()
+	case "r":
+		return m.rescan()
 	case "/":
 		m.filtering = true
 		m.filter.Focus()
