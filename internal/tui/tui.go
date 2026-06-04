@@ -197,7 +197,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanMsg:
 		m.items = make([]*item, 0, len(msg.targets))
 		for _, t := range msg.targets {
-			it := &item{target: t, selected: true}
+			it := &item{target: t, selected: false}
 			m.items = append(m.items, it)
 			m.byPath[t.Path] = it
 		}

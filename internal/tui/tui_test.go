@@ -134,16 +134,19 @@ func TestRoundTripSelectDeleteRescan(t *testing.T) {
 	if m.state != stateSelecting {
 		t.Fatalf("after rescan, state = %v, want selecting", m.state)
 	}
-	if m.selectedCount() != 3 {
-		t.Errorf("freshly rescanned items should all be selected, got %d", m.selectedCount())
+	if m.selectedCount() != 0 {
+		t.Errorf("freshly rescanned items should start unselected, got %d selected", m.selectedCount())
 	}
 }
 
-// reachDone drives a freshly-scanned model through confirm + delete into the
-// Done state (all items are selected by default).
+// reachDone drives a freshly-scanned model through select-all + confirm +
+// delete into the Done state. Nothing is selected by default, so it presses
+// `a` first to have something to delete.
 func reachDone(t *testing.T, m Model) Model {
 	t.Helper()
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // -> confirm
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}) // select all
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // -> confirm
 	m = m2.(Model)
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}) // -> deleting
 	m = m2.(Model)
@@ -272,15 +275,15 @@ func TestSelectingViewOffersRescan(t *testing.T) {
 	}
 }
 
-func TestModelDefaultsAllSelectedLargestFirst(t *testing.T) {
+func TestModelDefaultsNoneSelectedLargestFirst(t *testing.T) {
 	sizes := map[string]int64{"/a/node_modules": 300, "/b/target": 100, "/home/.gradle/caches": 600}
 	deleted := []string{}
 	m := drainSizing(t, newTestModel(sizes, &deleted), sizes)
 	if m.state != stateSelecting {
 		t.Fatalf("state = %v, want selecting", m.state)
 	}
-	if m.selectedSize() != 1000 || m.selectedCount() != 3 {
-		t.Errorf("defaults: size=%d count=%d, want 1000/3", m.selectedSize(), m.selectedCount())
+	if m.selectedSize() != 0 || m.selectedCount() != 0 {
+		t.Errorf("defaults: size=%d count=%d, want 0/0 (nothing selected)", m.selectedSize(), m.selectedCount())
 	}
 	if m.items[m.view[0]].target.Path != "/home/.gradle/caches" {
 		t.Errorf("expected largest (gradle) first, got %s", m.items[m.view[0]].target.Path)
@@ -292,10 +295,10 @@ func TestModelToggleAndFilter(t *testing.T) {
 	deleted := []string{}
 	m := drainSizing(t, newTestModel(sizes, &deleted), sizes)
 
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace}) // toggle top (gradle 600) off
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace}) // toggle top (gradle 600) on
 	m = m2.(Model)
-	if m.selectedSize() != 400 {
-		t.Errorf("after toggle gradle off, selected = %d, want 400", m.selectedSize())
+	if m.selectedSize() != 600 {
+		t.Errorf("after toggle gradle on, selected = %d, want 600", m.selectedSize())
 	}
 
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -342,7 +345,9 @@ func TestDeleteFlowDeletesSelectedAfterConfirm(t *testing.T) {
 	deleted := []string{}
 	m := drainSizing(t, newTestModel(sizes, &deleted), sizes)
 
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace}) // deselect gradle (top)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}) // select all
+	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace}) // deselect gradle (top)
 	m = m2.(Model)
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // -> confirm
 	m = m2.(Model)
