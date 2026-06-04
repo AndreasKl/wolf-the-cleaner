@@ -202,6 +202,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.byPath[t.Path] = it
 		}
 		m.state = stateSelecting
+		if !m.hasGlobals() {
+			m.onlyGlobal = false // no globals to filter to; don't strand the view
+		}
 		m.rebuildView()
 		return m, m.startSizing()
 	case sizeMsg:
@@ -296,9 +299,11 @@ func (m Model) handleSelectingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.toggleAll()
 	case "g":
-		m.onlyGlobal = !m.onlyGlobal
-		m.cursor = 0
-		m.rebuildView()
+		if m.hasGlobals() {
+			m.onlyGlobal = !m.onlyGlobal
+			m.cursor = 0
+			m.rebuildView()
+		}
 	case "r":
 		return m.rescan()
 	case "/":
@@ -399,6 +404,17 @@ func (m Model) selectedSize() int64 {
 		}
 	}
 	return s
+}
+
+// hasGlobals reports whether the current scan produced any global-cache item.
+// It drives whether the globals-only filter is offered at all.
+func (m Model) hasGlobals() bool {
+	for _, it := range m.items {
+		if it.target.Global {
+			return true
+		}
+	}
+	return false
 }
 
 // beginDelete snapshots the selected items into the delete queue and starts the

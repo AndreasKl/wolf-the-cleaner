@@ -340,6 +340,65 @@ func TestConfirmGateBlocksDeleteOnQuit(t *testing.T) {
 	}
 }
 
+func TestNoGlobalsHidesGlobalFilter(t *testing.T) {
+	locals := []wolf.Target{
+		{Path: "/a/node_modules", Kind: "JavaScript/TS"},
+		{Path: "/b/target", Kind: "Rust"},
+	}
+	m := New(Options{Root: "/x"})
+	m.findFn = func() []wolf.Target { return locals }
+	m.sizeFn = func(string) int64 { return 1 }
+	m.deleteFn = func(wolf.Target) error { return nil }
+	m.width, m.height = 100, 10
+
+	m2, _ := m.Update(scanMsg{targets: locals})
+	m = m2.(Model)
+	for _, lt := range locals {
+		m2, _ = m.Update(sizeMsg{path: lt.Path, size: 1})
+		m = m2.(Model)
+	}
+	m2, _ = m.Update(sizingDoneMsg{})
+	m = m2.(Model)
+
+	before := len(m.view)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	m = m2.(Model)
+	if m.onlyGlobal {
+		t.Error("g must not enable the globals-only filter when there are no globals")
+	}
+	if len(m.view) != before {
+		t.Errorf("view changed after g with no globals: %d -> %d", before, len(m.view))
+	}
+	if strings.Contains(m.View(), "[g] globals") {
+		t.Errorf("footer must omit the globals hint when there are no globals:\n%s", m.View())
+	}
+}
+
+func TestGlobalLessScanForcesOnlyGlobalOff(t *testing.T) {
+	sizes := map[string]int64{"/a/node_modules": 1, "/b/target": 1, "/home/.gradle/caches": 1}
+	deleted := []string{}
+	m := drainSizing(t, newTestModel(sizes, &deleted), sizes) // fixture has a global
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")}) // globals only
+	m = m2.(Model)
+	if !m.onlyGlobal {
+		t.Fatal("setup: expected onlyGlobal on while globals exist")
+	}
+
+	m.findFn = func() []wolf.Target {
+		return []wolf.Target{{Path: "/c/dist", Kind: "JavaScript/TS"}}
+	}
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")}) // rescan into no-globals
+	m = applyScanCmd(t, m2.(Model), cmd)
+
+	if m.onlyGlobal {
+		t.Error("a scan with no globals must force onlyGlobal off")
+	}
+	if len(m.view) == 0 {
+		t.Error("view must not be empty after onlyGlobal is forced off")
+	}
+}
+
 func TestDeleteFlowDeletesSelectedAfterConfirm(t *testing.T) {
 	sizes := map[string]int64{"/a/node_modules": 300, "/b/target": 100, "/home/.gradle/caches": 600}
 	deleted := []string{}
