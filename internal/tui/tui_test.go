@@ -439,3 +439,22 @@ func TestDeleteFlowDeletesSelectedAfterConfirm(t *testing.T) {
 		}
 	}
 }
+
+func TestEnterDoesNothingWithNoSelection(t *testing.T) {
+	sizes := map[string]int64{"/a/node_modules": 1, "/b/target": 1, "/home/.gradle/caches": 1}
+	deleted := []string{}
+	m := drainSizing(t, newTestModel(sizes, &deleted), sizes)
+	if m.selectedCount() != 0 {
+		t.Fatalf("setup: expected nothing selected by default, got %d", m.selectedCount())
+	}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter with an empty selection
+	m = m2.(Model)
+
+	if m.state != stateSelecting {
+		t.Errorf("enter with no selection must not advance to confirm; state = %v", m.state)
+	}
+	if len(deleted) != 0 {
+		t.Errorf("enter with no selection must not delete anything, deleted=%v", deleted)
+	}
+}
