@@ -84,6 +84,9 @@ func TestE2EDryRunDeletesNothing(t *testing.T) {
 	if !strings.Contains(out, "node_modules") || !strings.Contains(out, "Total to trash:") {
 		t.Errorf("dry-run output missing expected content:\n%s", out)
 	}
+	if !strings.Contains(out, ".m2") {
+		t.Errorf("globals should be scanned by default; expected a .m2 cache in output:\n%s", out)
+	}
 	if !exists(filepath.Join(root, "js", "node_modules")) {
 		t.Error("dry-run must not delete node_modules")
 	}
@@ -93,7 +96,7 @@ func TestE2EDeleteRemovesArtifactsKeepsMarkers(t *testing.T) {
 	bin := buildWolfe(t)
 	root := fixtureTree(t)
 
-	out, code := run(t, bin, nil, root, "--global", "--delete")
+	out, code := run(t, bin, nil, root, "--delete")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0\n%s", code, out)
 	}
