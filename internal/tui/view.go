@@ -105,6 +105,11 @@ func (m Model) selectingView() string {
 		accentStyle.Render(fmt.Sprintf("Selected: %s / %d dirs", wolf.FormatSize(m.selectedSize()), m.selectedCount())),
 		dimStyle.Render(fmt.Sprintf("%d–%d of %d", lo, end, len(m.view))),
 	)
-	fmt.Fprint(&b, dimStyle.Render("  [space] toggle  [a] all  [g] globals  [/] filter  [r] rescan  [enter] delete  [q] quit")+"\n")
+	keys := "[space] toggle  [a] all  "
+	if m.hasGlobals() {
+		keys += "[g] globals  "
+	}
+	keys += "[/] filter  [r] rescan  [enter] delete  [q] quit"
+	fmt.Fprint(&b, dimStyle.Render("  "+keys)+"\n")
 	return b.String()
 }

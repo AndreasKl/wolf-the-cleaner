@@ -1,5 +1,5 @@
 // Command wolfe (Wolf the Cleaner) reports or deletes regenerable build
-// artifacts under a directory tree, with an opt-in global-cache mode and an
+// artifacts under a directory tree, with default-on global-cache scanning and an
 // interactive TUI. Module path: it.kluth.buildcleaner.
 package main
 
@@ -22,7 +22,7 @@ func main() {
 // options is the parsed command line: the directory to scan plus the mode flags.
 type options struct {
 	path        string
-	global      bool
+	noGlobal    bool
 	del         bool
 	quiet       bool
 	interactive bool
@@ -44,7 +44,7 @@ func parseArgs(args []string, out io.Writer) (options, error) {
 	opts := options{path: "."}
 	fs := flag.NewFlagSet("wolfe", flag.ContinueOnError)
 	fs.SetOutput(out)
-	fs.BoolVar(&opts.global, "global", false, "also include global per-user caches (~/.m2, ~/.gradle, ...)")
+	fs.BoolVar(&opts.noGlobal, "no-global", false, "exclude global per-user caches (~/.m2, ~/.gradle, ...)")
 	fs.BoolVar(&opts.del, "delete", false, "actually dispose of the listed directories (default: dry-run)")
 	fs.BoolVar(&opts.noTrash, "no-trash", false, "permanently delete instead of moving to the trash")
 	fs.BoolVar(&opts.quiet, "quiet", false, "print only the totals")
@@ -95,8 +95,10 @@ func run() int {
 		how = wolf.Permanent
 	}
 
+	includeGlobal := !opts.noGlobal
+
 	if opts.interactive {
-		failed, err := tui.Run(tui.Options{Root: opts.path, Global: opts.global, Permanent: opts.noTrash})
+		failed, err := tui.Run(tui.Options{Root: opts.path, Global: includeGlobal, Permanent: opts.noTrash})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -107,7 +109,7 @@ func run() int {
 		return 0
 	}
 
-	return runCLI(opts.path, opts.global, opts.del, opts.quiet, how)
+	return runCLI(opts.path, includeGlobal, opts.del, opts.quiet, how)
 }
 
 func runCLI(path string, global, del, quiet bool, how wolf.Disposal) int {

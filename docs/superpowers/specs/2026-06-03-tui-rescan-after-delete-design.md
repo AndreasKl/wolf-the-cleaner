@@ -35,7 +35,7 @@ rescans there. While the filter input is focused, `r` types into the filter
 (same as `a`/`g`/`q` today); rescan is only bound in the non-filtering branch.
 
 Pending selections are not carried across a rescan — the list is rebuilt from a
-fresh scan, and (as today) every freshly scanned item starts selected.
+fresh scan, and every freshly scanned item starts unselected.
 
 ### What rescan preserves vs. resets
 

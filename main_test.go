@@ -24,15 +24,15 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name: "flags before the path",
-			args: []string{"--global", "--delete", "/tmp/x"},
-			want: options{path: "/tmp/x", global: true, del: true},
+			args: []string{"--no-global", "--delete", "/tmp/x"},
+			want: options{path: "/tmp/x", noGlobal: true, del: true},
 		},
 		{
 			// The stdlib flag package stops at the first non-flag argument, so
 			// this is the case the re-parse loop exists to support.
 			name: "flags after the path",
-			args: []string{"/tmp/x", "--global", "--delete"},
-			want: options{path: "/tmp/x", global: true, del: true},
+			args: []string{"/tmp/x", "--no-global", "--delete"},
+			want: options{path: "/tmp/x", noGlobal: true, del: true},
 		},
 		{
 			name: "flags on both sides of the path",
@@ -41,8 +41,8 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name: "last positional wins",
-			args: []string{"a", "--global", "b"},
-			want: options{path: "b", global: true},
+			args: []string{"a", "--no-global", "b"},
+			want: options{path: "b", noGlobal: true},
 		},
 		{
 			name: "interactive shorthand",
@@ -73,6 +73,12 @@ func TestParseArgsInteractiveQuietConflict(t *testing.T) {
 func TestParseArgsUnknownFlag(t *testing.T) {
 	if _, err := parseArgs([]string{"--bogus"}, io.Discard); err == nil {
 		t.Error("expected an error for an unknown flag")
+	}
+}
+
+func TestParseArgsRejectsRemovedGlobalFlag(t *testing.T) {
+	if _, err := parseArgs([]string{"--global"}, io.Discard); err == nil {
+		t.Error("--global was removed and must now be rejected")
 	}
 }
 

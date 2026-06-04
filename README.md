@@ -9,8 +9,8 @@ backup gets smaller. Everything it removes can be regenerated (dependencies
 re-download, build output recompiles) - the Wolf cleans up the mess and leaves
 no trace.
 
-It can optionally also clean shared, per-user package caches (`./.m2`,
-`./.gradle/caches`), and offers a polished interactive
+It also cleans shared, per-user package caches (`./.m2`, `./.gradle/caches`) by
+default (pass `--no-global` to skip), and offers a polished interactive
 TUI for hands-on cleanup.
 
 > **Platform:** `wolfe` is built and tested primarily for **Linux**. The trash
@@ -49,7 +49,7 @@ wolfe [path] [flags]
 ```
 
 - `path` - directory to scan (default `.`).
-- `--global` - also include global per-user caches in the same report/delete.
+- `--no-global` - exclude global per-user caches (`~/.m2`, `~/.gradle`, ...). Global caches are **included by default** in every mode.
 - `--delete` - actually dispose of the listed directories (without it, the run is a **dry-run**). Default disposal is **move to trash**.
 - `--no-trash` - permanently delete instead of trashing (irreversible; frees disk space immediately). A mode modifier — on its own it only changes what the dry-run *previews*.
 - `--quiet` - print only the totals (handy in backup scripts).
@@ -61,12 +61,12 @@ disposal is confirmed in the TUI (and `--no-trash` selects permanent deletion th
 ### Examples
 
 ```bash
-wolfe ~/Coding                          # dry-run: would move to trash
-wolfe ~/Coding --no-trash               # dry-run: would PERMANENTLY delete
-wolfe ~/Coding --delete                 # move artifacts to the trash (recoverable)
+wolfe ~/Coding                          # dry-run incl. global caches: would move to trash
+wolfe ~/Coding --no-trash               # dry-run incl. global caches: would PERMANENTLY delete
+wolfe ~/Coding --delete                 # move artifacts (incl. global caches) to the trash
 wolfe ~/Coding --delete --no-trash      # permanently delete (frees space now)
-wolfe ~/Coding --global                 # dry-run incl. global caches
-wolfe ~/Coding --global --delete --no-trash --quiet   # backup script: reclaim space
+wolfe ~/Coding --no-global              # dry-run of local build artifacts only
+wolfe ~/Coding --delete --no-trash --quiet   # backup script: reclaim space (incl. caches)
 wolfe ~/Coding -i                       # interactive select-and-delete
 ```
 
@@ -83,10 +83,13 @@ Run with --delete to move them to the trash (recoverable; use --no-trash to dele
 
 ### Interactive TUI
 
-While scanning shows a scrollable, filterable checklist sorted
-largest-first (sizes fill in lazily as they're computed). Keys: `↑/↓` move,
-`space` toggle, `a` toggle all, `g` globals-only, `/` filter, `enter` confirm &
-delete, `q` quit. A confirmation step gates all deletion.
+Interactive mode scans local artifacts **and** global caches by default (pass
+`--no-global` to skip the caches). The list starts with **nothing selected** —
+pick what to remove, or press `a` to select all. While scanning shows a
+scrollable, filterable checklist sorted largest-first (sizes fill in lazily as
+they're computed). Keys: `↑/↓` move, `space` toggle, `a` toggle all, `g`
+globals-only (shown only when the scan found global caches), `/` filter, `enter`
+confirm & delete, `q` quit. A confirmation step gates all deletion.
 
 ## Detection
 
@@ -114,7 +117,7 @@ ecosystem (and the Crystal/Deno docs).
 > reclaimable directory (binaries are loose files, `vendor/` is usually
 > committed). Go's reclaimable space is its global module/build caches below.
 
-Global caches (with `--global`): Maven (`.m2/repository`), Ivy (`.ivy2/cache`),
+Global caches (included by default; use `--no-global` to skip): Maven (`.m2/repository`), Ivy (`.ivy2/cache`),
 Gradle (`.gradle/caches`), NuGet (`.nuget/packages`), npm (`.npm`), Yarn
 (`.cache/yarn`), pnpm (`.local/share/pnpm/store`), pip (`.cache/pip`), Cargo
 (`.cargo/registry`, `.cargo/git`), Pub (`.pub-cache`), Deno (`.cache/deno`), Gem
@@ -143,6 +146,6 @@ golangci-lint run ./...# linters (config in .golangci.yml)
 CI (`.github/workflows/ci.yml`) runs gofmt, vet, tests, and golangci-lint on
 every push and PR.
 
-End-to-end behavior - including the destructive `--delete`/`--global` paths - is
+End-to-end behavior - including the destructive `--delete` path - is
 exercised only **inside a Docker container** against a throwaway tree and an
 isolated `$HOME`, so it never touches your real files.
