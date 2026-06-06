@@ -22,7 +22,7 @@ CI gates merges on gofmt, vet, `go test ./...`, and golangci-lint.
 
 ## Architecture
 
-The design is **hexagonal (ports and adapters)**: `internal/wolf` is the domain core, and `main.go` (CLI) and `internal/tui` (Bubble Tea) are adapters that depend inward on it — never the reverse. Both front-ends deal only in `wolf.Target` values; **all detection, sizing, and deletion live in `internal/wolf`** (unexported). Add filesystem logic to the core, not a front-end. External effects enter the core through injected ports (e.g. the TUI's `findFn`/`sizeFn`/`deleteFn`), keeping it testable; `internal/tui` is a thin presenter with no deletion/sizing of its own.
+The design is **hexagonal (ports and adapters)**: `internal/wolf` is the domain core, and `main.go` (CLI) and `internal/tui` (Bubble Tea) are adapters that depend inward on it — never the reverse. Both front-ends deal only in `wolf.Target` values; **all detection, sizing, and deletion live in `internal/wolf`** (unexported). Add filesystem logic to the core, not a front-end. The CLI calls `wolf` directly; the TUI reaches it through injected ports (`findFn`/`sizeFn`/`deleteFn`) so its state machine stays testable without a filesystem or TTY. `internal/tui` is a thin presenter with no deletion/sizing of its own.
 
 Non-obvious decisions — don't "simplify" these without understanding why:
 
@@ -34,7 +34,7 @@ Non-obvious decisions — don't "simplify" these without understanding why:
 
 ## Code style
 
-- **Write idiomatic Go, like the Go core team / standard library:** small focused functions, stdlib-style doc comments (a full sentence beginning with the identifier name), accept interfaces and return concrete types, wrap errors with `%w`, and no premature abstraction. Match the surrounding code.
+- **Write idiomatic Go, like the Go core team / standard library:** small focused functions, stdlib-style doc comments (a full sentence beginning with the identifier name), accept interfaces and return concrete types, wrap errors with `%w` when adding context, and no premature abstraction. Match the surrounding code.
 - **Prefer the standard library.** Reach for a third-party dependency only when the stdlib genuinely cannot do the job (the TUI uses Bubble Tea/lipgloss; trashing is the from-scratch stdlib implementation above, not a dependency).
 - **Apply SOLID principles.**
 - **DRY is about concepts, not code.** Give each piece of *knowledge* a single source of truth, but don't merge code that merely looks similar. **A wrong abstraction is worse than duplication** — prefer incidental duplication of distinct concepts over a forced abstraction, and when an abstraction starts to fight the code, inline it back to duplication and re-derive the right one.
