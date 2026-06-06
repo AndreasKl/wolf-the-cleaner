@@ -1,3 +1,4 @@
 # build artifacts (eat your own dog food)
 bin/
 /buildcleaner
+/wolfe
